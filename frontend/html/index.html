@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ExamForge AI — RAG Question Paper Generator</title>
+  <link rel="stylesheet" href="../css/style.css"/>
+</head>
+<body>
+  <div class="bg-mesh"></div>
+
+  <!-- Navbar -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </div>
+      <span class="brand-name">ExamForge<span class="brand-ai">AI</span></span>
+    </div>
+    <div class="nav-center">
+      <a href="index.html" class="nav-pill active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Generator
+      </a>
+      <a href="exam.html" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        Exam
+      </a>
+      <a href="dashboard.html" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+    </div>
+    <div class="nav-right">
+      <a href="config.html" title="Backend Configuration" style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; color: #cbd5e1; text-decoration: none; font-size: 12px; border-radius: 6px; transition: all 0.2s; cursor: pointer;" onmouseover="this.style.background='rgba(148,163,184,0.1)'" onmouseout="this.style.background='transparent'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><circle cx="12" cy="12" r="1"/><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m2.12 2.12l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m2.12-2.12l4.24-4.24M19.78 19.78l-4.24-4.24m-2.12-2.12l-4.24-4.24"/></svg>
+        Settings
+      </a>
+    </div>
+  </nav>
+
+  <main class="main-wrap">
+    <!-- Hero -->
+    <section class="hero-section">
+      <div class="hero-eyebrow">
+        <span class="eyebrow-dot"></span>
+        RAG-Powered Question Generation
+      </div>
+      <h1 class="hero-h1">Generate Smart Exam Papers<br/><span class="hero-gradient">from Your Own Materials</span></h1>
+      <p class="hero-p">Upload 10 previous year papers · AI extracts patterns · Generates 4 unique sets · Analyzes student performance</p>
+      <div class="hero-stats">
+        <div class="hero-stat"><span class="stat-num">10</span><span class="stat-label">PYQ Papers</span></div>
+        <div class="hero-stat-div"></div>
+        <div class="hero-stat"><span class="stat-num">4</span><span class="stat-label">Unique Sets</span></div>
+        <div class="hero-stat-div"></div>
+        <div class="hero-stat"><span class="stat-num">RAG</span><span class="stat-label">AI Engine</span></div>
+      </div>
+    </section>
+
+    <!-- Step 1: Upload -->
+    <div class="section-card" id="uploadCard">
+      <div class="section-card-header">
+        <div class="section-icon blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <div>
+          <h2><span class="step-num">01</span> Upload Previous Year Papers</h2>
+          <p class="section-sub">Upload up to 10 PYQ papers — RAG will extract question patterns</p>
+        </div>
+      </div>
+      <div class="section-body">
+        <div class="drop-zone" id="dropZone">
+          <div class="drop-zone-content">
+            <div class="drop-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            </div>
+            <p class="drop-title">Drop your PYQ papers here</p>
+            <p class="drop-sub">PDF, DOC, DOCX, TXT — Maximum 10 files</p>
+            <button class="btn-outline" onclick="document.getElementById('fileInput').click()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Browse Files
+            </button>
+            <input type="file" id="fileInput" multiple accept=".pdf,.doc,.docx,.txt" hidden/>
+          </div>
+        </div>
+
+        <div class="file-grid" id="fileGrid"></div>
+
+        <div class="upload-footer">
+          <div class="upload-progress-wrap">
+            <div class="upload-count"><span id="fileCount">0</span>/10 papers</div>
+            <div class="upload-bar"><div class="upload-bar-fill" id="uploadBarFill"></div></div>
+          </div>
+          <button class="btn-primary" id="uploadToRAGBtn" onclick="uploadToRAG()" style="display:none">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Send to Backend
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Generate -->
+    <div class="section-card generate-card" id="generateCard">
+      <div class="section-card-header">
+        <div class="section-icon green">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <div>
+          <h2><span class="step-num">02</span> Generate 4 Paper Sets</h2>
+
+        </div>
+      </div>
+      <div class="section-body">
+        <div class="generate-info-row">
+          <div class="gen-info-chip">Set A</div>
+          <div class="gen-info-chip">Set B</div>
+          <div class="gen-info-chip">Set C</div>
+          <div class="gen-info-chip">Set D</div>
+        </div>
+        <button class="btn-generate" id="genBtn" onclick="generatePapers()" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Generate 4 Sets
+        </button>
+        <div class="gen-progress" id="genProgress" style="display:none">
+          <div class="gen-steps" id="genSteps"></div>
+          <div class="gen-bar-wrap"><div class="gen-bar-fill" id="genBarFill"></div></div>
+          <p class="gen-bar-label" id="genBarLabel">Initializing RAG pipeline...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Output: 4 Sets -->
+    <div id="setsOutput" style="display:none">
+      <div class="output-header-row">
+        <div>
+          <h2 class="output-title">📋 Generated Paper Sets</h2>
+          
+        </div>
+        <div class="output-header-actions">
+          <button class="btn-outline" onclick="downloadAll()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download All
+          </button>
+          <a href="exam.html" class="btn-primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/></svg>
+            Start Exam
+          </a>
+        </div>
+      </div>
+
+      <div class="sets-tab-bar">
+        <button class="set-tab active" data-set="0" onclick="showSet(0)">
+          <span class="tab-label">Set A</span>
+          <span class="tab-count" id="tabCount0">—</span>
+        </button>
+        <button class="set-tab" data-set="1" onclick="showSet(1)">
+          <span class="tab-label">Set B</span>
+          <span class="tab-count" id="tabCount1">—</span>
+        </button>
+        <button class="set-tab" data-set="2" onclick="showSet(2)">
+          <span class="tab-label">Set C</span>
+          <span class="tab-count" id="tabCount2">—</span>
+        </button>
+        <button class="set-tab" data-set="3" onclick="showSet(3)">
+          <span class="tab-label">Set D</span>
+          <span class="tab-count" id="tabCount3">—</span>
+        </button>
+      </div>
+
+      <div class="paper-preview-card section-card" id="paperPreview"></div>
+    </div>
+  </main>
+
+  <script src="../js/app.js"></script>
+</body>
+</html>

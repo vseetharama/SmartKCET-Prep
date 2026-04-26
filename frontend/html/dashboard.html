@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard — ExamForge AI</title>
+  <link rel="stylesheet" href="../css/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="bg-mesh"></div>
+
+  <!-- Dashboard Navbar -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </div>
+      <span class="brand-name">ExamForge<span class="brand-ai">AI</span></span>
+    </div>
+    <div class="nav-center">
+      <a href="index.html" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Generator
+      </a>
+      <a href="exam.html" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        Exam
+      </a>
+      <a href="dashboard.html" class="nav-pill active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+    </div>
+    <div class="nav-right">
+      <a href="config.html" title="Backend Configuration" style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; color: #cbd5e1; text-decoration: none; font-size: 12px; border-radius: 6px; transition: all 0.2s; cursor: pointer;" onmouseover="this.style.background='rgba(148,163,184,0.1)'" onmouseout="this.style.background='transparent'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><circle cx="12" cy="12" r="1"/><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m2.12 2.12l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m2.12-2.12l4.24-4.24M19.78 19.78l-4.24-4.24m-2.12-2.12l-4.24-4.24"/></svg>
+        Settings
+      </a>
+      <button class="btn-outline small" onclick="clearAllData()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+        Clear Data
+      </button>
+      <button class="btn-primary small" onclick="exportReport()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export Report
+      </button>
+    </div>
+  </nav>
+
+  <main class="dash-main">
+    <!-- Dashboard Header -->
+    <div class="dash-hero">
+      <div>
+        <h1 class="dash-title">Performance <span class="hero-gradient">Dashboard</span></h1>
+        <p class="dash-sub">AI-powered analysis of student performance across all exam sets</p>
+      </div>
+      <div class="dash-hero-right">
+        <div class="last-updated" id="lastUpdated">Last updated: —</div>
+        <button class="btn-outline" onclick="refreshDashboard()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- No Data State -->
+    <div class="empty-state" id="emptyState" style="display:none">
+      <div class="empty-icon">📊</div>
+      <h3>No Submissions Yet</h3>
+      <p>Students need to complete and submit exams before analytics appear here.</p>
+      <div class="empty-actions">
+        <a href="index.html" class="btn-primary">Generate Papers →</a>
+        <a href="exam.html" class="btn-outline">Take Exam →</a>
+      </div>
+    </div>
+
+    <div id="dashContent">
+      <!-- Filters -->
+      <div class="dash-filters section-card">
+        <div class="filter-row">
+          <div class="filter-group">
+            <label class="input-label">Student</label>
+            <select id="filterStudent" class="select-input" onchange="applyFilters()">
+              <option value="all">All Students</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label class="input-label">Paper Set</label>
+            <select id="filterSet" class="select-input" onchange="applyFilters()">
+              <option value="all">All Sets</option>
+              <option value="0">Set A</option>
+              <option value="1">Set B</option>
+              <option value="2">Set C</option>
+              <option value="3">Set D</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label class="input-label">Status</label>
+            <select id="filterStatus" class="select-input" onchange="applyFilters()">
+              <option value="all">All</option>
+              <option value="pass">Pass</option>
+              <option value="fail">Fail</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- KPI Row -->
+      <div class="kpi-row" id="kpiRow">
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiStudents">0</div>
+            <div class="kpi-tile-label">Total Students</div>
+          </div>
+          <div class="kpi-tile-trend up" id="kpiStudentsTrend"></div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiSubmissions">0</div>
+            <div class="kpi-tile-label">Submissions</div>
+          </div>
+          <div class="kpi-tile-trend" id="kpiSubTrend"></div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg></div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiAvgScore">0%</div>
+            <div class="kpi-tile-label">Avg Score</div>
+          </div>
+          <div class="kpi-tile-trend" id="kpiScoreTrend"></div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiPassRate">0%</div>
+            <div class="kpi-tile-label">Pass Rate</div>
+          </div>
+          <div class="kpi-tile-trend" id="kpiPassTrend"></div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiAvgTime">0m</div>
+            <div class="kpi-tile-label">Avg Time</div>
+          </div>
+          <div class="kpi-tile-trend" id="kpiTimeTrend"></div>
+        </div>
+      </div>
+
+      <!-- Charts Row 1 -->
+      <div class="charts-row">
+        <div class="chart-card section-card wide">
+          <div class="chart-card-header">
+            <h3>Topic Performance</h3>
+          </div>
+          <div class="chart-wrap"><canvas id="topicChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Charts Row 2 -->
+      <div class="charts-row" style="margin-top:20px">
+        <div class="chart-card section-card">
+          <div class="chart-card-header"><h3>Set-wise Avg Score</h3></div>
+          <div class="chart-wrap"><canvas id="setChart"></canvas></div>
+        </div>
+        <div class="chart-card section-card">
+          <div class="chart-card-header"><h3>Pass vs Fail</h3></div>
+          <div class="chart-wrap"><canvas id="passChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- AI Analysis Block -->
+      <div class="ai-block section-card" id="aiBlock">
+        <div class="ai-block-header">
+          <div class="ai-block-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/><path d="M15.54 8.46a5 5 0 010 7.07M8.46 8.46a5 5 0 000 7.07"/></svg>
+          </div>
+          <div>
+            <h2>AI Performance Analysis</h2>
+            <p class="section-sub" id="aiAnalysisFor">Analyzing all students</p>
+          </div>
+          <div class="ai-block-badge">RAG Powered</div>
+        </div>
+
+        <div class="ai-zones-grid">
+          <div class="ai-zone strong">
+            <div class="ai-zone-header">
+              <span class="zone-icon">💪</span>
+              <span>Strong Areas</span>
+              <span class="zone-count" id="strongCount">0</span>
+            </div>
+            <ul class="zone-items" id="strongItems"></ul>
+          </div>
+          <div class="ai-zone improve">
+            <div class="ai-zone-header">
+              <span class="zone-icon">📈</span>
+              <span>Can Improve</span>
+              <span class="zone-count" id="improveCount">0</span>
+            </div>
+            <ul class="zone-items" id="improveItems"></ul>
+          </div>
+          <div class="ai-zone weak">
+            <div class="ai-zone-header">
+              <span class="zone-icon">⚠️</span>
+              <span>Weak Areas</span>
+              <span class="zone-count" id="weakCount">0</span>
+            </div>
+            <ul class="zone-items" id="weakItems"></ul>
+          </div>
+        </div>
+
+        <div class="ai-recommendation-box" id="aiRecommendationBox">
+          <div class="ai-rec-header">
+            <span>🤖</span> AI Recommendation
+          </div>
+          <p id="aiRecommendationText"></p>
+        </div>
+      </div>
+
+      <!-- Student Ranking -->
+      <div class="section-card results-card" style="margin-top:20px">
+        <div class="results-header">
+          <h3>🏆 Student Rankings</h3>
+        </div>
+        <div class="chart-wrap" style="height:280px;padding:16px">
+          <canvas id="rankingChart"></canvas>
+        </div>
+        <div class="table-scroll">
+          <table class="results-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Student</th>
+                <th>Roll No.</th>
+                <th>Best Score</th>
+                <th>Marks</th>
+                <th>Set</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="rankingBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Student Results Table -->
+      <div class="section-card results-card">
+        <div class="results-header">
+          <h3>Student Results</h3>
+          <div class="results-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="searchInput" class="search-input" placeholder="Search student..." oninput="filterTable()"/>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="results-table">
+            <thead>
+              <tr>
+                <th onclick="sortTable('name')">Student <span class="sort-icon">↕</span></th>
+                <th>Roll No.</th>
+                <th onclick="sortTable('set')">Set <span class="sort-icon">↕</span></th>
+                <th onclick="sortTable('score')">Score <span class="sort-icon">↕</span></th>
+                <th>Marks</th>
+                <th onclick="sortTable('time')">Time <span class="sort-icon">↕</span></th>
+                <th onclick="sortTable('status')">Status <span class="sort-icon">↕</span></th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+        <div class="table-footer" id="tableFooter"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Student Detail Drawer -->
+  <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()" style="display:none"></div>
+  <div class="detail-drawer" id="detailDrawer">
+    <div class="drawer-header">
+      <div>
+        <h3 id="drawerName">Student Name</h3>
+        <p class="drawer-meta" id="drawerMeta"></p>
+      </div>
+      <button class="drawer-close" onclick="closeDrawer()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </div>
+
+  <script src="../js/app.js"></script>
+  <script src="../js/dashboard.js"></script>
+</body>
+</html>
