@@ -42,7 +42,7 @@ async function renderExamSelection() {
   const body = document.querySelector('.exam-body');
   const selectionDiv = document.createElement('div');
   selectionDiv.className = 'exam-selection-view';
-  selectionDiv.style.cssText = 'max-width:900px;margin:100px auto 40px;padding:0 20px;';
+  selectionDiv.style.cssText = 'max-width:900px;margin:100px auto 40px;padding:0 20px;position:relative;z-index:1;';
   selectionDiv.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">Loading available exams...</div>';
   body.appendChild(selectionDiv);
 
