@@ -30,12 +30,130 @@ function getUrlParam(name) {
   return params.get(name);
 }
 
+// ── Exam Selection UI (when no ?set= param) ─────────────────────────────────
+async function renderExamSelection() {
+  // Hide exam-specific elements
+  document.getElementById('entryOverlay').style.display = 'none';
+  document.getElementById('examLayout').style.display = 'none';
+  const topbar = document.getElementById('examTopbar');
+  if (topbar) topbar.style.display = 'none';
+
+  // Create selection container
+  const body = document.querySelector('.exam-body');
+  const selectionDiv = document.createElement('div');
+  selectionDiv.className = 'exam-selection-view';
+  selectionDiv.style.cssText = 'max-width:900px;margin:100px auto 40px;padding:0 20px;';
+  selectionDiv.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">Loading available exams...</div>';
+  body.appendChild(selectionDiv);
+
+  try {
+    const res = await fetch('/api/student/exams', { credentials: 'include' });
+
+    if (res.status === 401) {
+      window.location.href = '/login';
+      return;
+    }
+
+    if (!res.ok) {
+      selectionDiv.innerHTML = '<div style="text-align:center;padding:40px;color:var(--red-l);">Failed to load exams. Please try again.</div>';
+      return;
+    }
+
+    const data = await res.json();
+    const subjects = data.subjects || [];
+
+    if (subjects.length === 0) {
+      selectionDiv.innerHTML = `
+        <div style="text-align:center;padding:60px 20px;">
+          <div style="font-size:3rem;margin-bottom:16px;">📋</div>
+          <h2 style="font-size:1.5rem;font-weight:700;margin-bottom:8px;">No Exams Available</h2>
+          <p style="color:var(--muted);margin-bottom:24px;">There are no published exams at the moment. Check back later.</p>
+          <a href="/dashboard" class="btn-generate" style="text-decoration:none;display:inline-flex;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3"/></svg>
+            Back to Dashboard
+          </a>
+        </div>`;
+      return;
+    }
+
+    // Render subject cards with exam sets
+    let html = `
+      <div style="text-align:center;margin-bottom:32px;">
+        <h2 style="font-size:1.6rem;font-weight:700;margin-bottom:8px;">Available Exams</h2>
+        <p style="color:var(--muted);font-size:0.9rem;">Select an exam set to begin your test</p>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:20px;">`;
+
+    subjects.forEach(function(subjectGroup) {
+      html += `
+        <div class="section-card" style="border:1px solid var(--border);border-radius:var(--r);overflow:hidden;">
+          <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
+            <div style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,rgba(124,58,237,0.2),rgba(37,99,235,0.2));display:flex;align-items:center;justify-content:center;font-size:1.2rem;">📚</div>
+            <div>
+              <h3 style="font-size:1.1rem;font-weight:700;margin:0;">${escapeHtmlExam(subjectGroup.subject)}</h3>
+              <p style="color:var(--muted);font-size:0.8rem;margin:0;">${subjectGroup.available_exams} exam${subjectGroup.available_exams !== 1 ? 's' : ''} available</p>
+            </div>
+          </div>
+          <div style="padding:16px 24px;display:flex;flex-direction:column;gap:12px;">`;
+
+      subjectGroup.exams.forEach(function(exam) {
+        const examName = exam.exam_name || 'Untitled Exam';
+        const createdDate = exam.created_at
+          ? new Date(exam.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+          : '';
+        const sets = exam.sets || [];
+
+        html += `
+          <div style="padding:14px 16px;background:var(--s2);border:1px solid var(--border);border-radius:var(--rs);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <div>
+                <span style="font-weight:600;font-size:0.92rem;">${escapeHtmlExam(examName)}</span>
+                <span style="color:var(--muted);font-size:0.78rem;margin-left:8px;">${createdDate}</span>
+              </div>
+              <span style="font-size:0.75rem;color:var(--muted);">${exam.set_count} sets</span>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">`;
+
+        if (sets.length > 0) {
+          sets.forEach(function(s) {
+            html += `<a href="/exam?set=${s.exam_set_id}" class="btn-outline small" style="text-decoration:none;padding:6px 14px;font-size:0.82rem;font-weight:600;">Set ${escapeHtmlExam(s.set_label)}</a>`;
+          });
+        } else {
+          // Fallback if sets not provided
+          html += `<span style="color:var(--muted);font-size:0.8rem;">No sets available</span>`;
+        }
+
+        html += `
+            </div>
+          </div>`;
+      });
+
+      html += `
+          </div>
+        </div>`;
+    });
+
+    html += '</div>';
+    selectionDiv.innerHTML = html;
+
+  } catch (e) {
+    console.error('Failed to load exam selection:', e);
+    selectionDiv.innerHTML = '<div style="text-align:center;padding:40px;color:var(--red-l);">Network error loading exams. Please try again.</div>';
+  }
+}
+
+function escapeHtmlExam(str) {
+  var div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+
 // ── Initialize exam page ─────────────────────────────────────────────────────
 (async function initExamPage() {
   const examSetId = getUrlParam('set');
   if (!examSetId) {
-    showToast('⚠️ No exam set specified. Redirecting...');
-    setTimeout(() => { window.location.href = '/dashboard'; }, 2000);
+    // No set specified — show exam selection UI
+    await renderExamSelection();
     return;
   }
 

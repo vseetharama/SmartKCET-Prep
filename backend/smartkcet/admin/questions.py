@@ -104,6 +104,7 @@ def _serialise_question(row: Question) -> dict[str, Any]:
     return {
         "id": str(row.id),
         "subject": row.subject,
+        "question": row.question_text,
         "question_text": row.question_text,
         "options": row.options,
         "correct_option": row.correct_option,

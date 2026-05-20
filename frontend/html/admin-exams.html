@@ -60,6 +60,10 @@
       <div class="section-body">
         <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
           <div class="input-group">
+            <label class="input-label" for="examNameInput">Exam Name</label>
+            <input type="text" id="examNameInput" class="text-input" placeholder="e.g. Mid-Term 2024" style="min-width:200px;"/>
+          </div>
+          <div class="input-group">
             <label class="input-label" for="subjectSelect">Subject</label>
             <select id="subjectSelect" class="text-input" style="min-width:200px;">
               <option value="">Select subject…</option>
@@ -94,6 +98,7 @@
           <table class="results-table">
             <thead>
               <tr>
+                <th>Name</th>
                 <th>Subject</th>
                 <th>Created</th>
                 <th>Sets</th>
@@ -102,7 +107,7 @@
               </tr>
             </thead>
             <tbody id="examsTableBody">
-              <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:32px;">Loading…</td></tr>
+              <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:32px;">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -144,7 +149,7 @@
         })
         .catch(function () {
           document.getElementById('examsTableBody').innerHTML =
-            '<tr><td colspan="5" style="text-align:center;color:var(--red-l);padding:32px;">Failed to load exams</td></tr>';
+            '<tr><td colspan="6" style="text-align:center;color:var(--red-l);padding:32px;">Failed to load exams</td></tr>';
         });
     }
 
@@ -154,7 +159,7 @@
       var countEl = document.getElementById('examCount');
 
       if (exams.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:32px;">No exams created yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:32px;">No exams created yet</td></tr>';
         countEl.textContent = '0 exams';
         return;
       }
@@ -162,6 +167,7 @@
       countEl.textContent = exams.length + ' exam' + (exams.length !== 1 ? 's' : '');
 
       tbody.innerHTML = exams.map(function (exam) {
+        var examName = exam.exam_name || 'Untitled';
         var createdDate = exam.created_at ? new Date(exam.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
         var statusClass = exam.is_published ? 'score-high' : '';
         var statusText = exam.is_published ? 'Published' : 'Unpublished';
@@ -169,6 +175,7 @@
         var toggleClass = exam.is_published ? 'btn-outline small' : 'btn-primary small';
 
         return '<tr>' +
+          '<td>' + escapeHtml(examName) + '</td>' +
           '<td>' + escapeHtml(exam.subject) + '</td>' +
           '<td>' + createdDate + '</td>' +
           '<td>' + (exam.set_count || 4) + ' sets</td>' +
@@ -190,6 +197,7 @@
     // ── Create exam ──────────────────────────────────────────────────────
     document.getElementById('createExamBtn').addEventListener('click', function () {
       var subject = document.getElementById('subjectSelect').value;
+      var examName = document.getElementById('examNameInput').value.trim();
       var msgEl = document.getElementById('createMessage');
 
       if (!subject) {
@@ -201,11 +209,14 @@
       btn.disabled = true;
       btn.textContent = 'Creating…';
 
+      var body = { subject: subject };
+      if (examName) body.exam_name = examName;
+
       fetch('/api/admin/exams', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ subject: subject }),
+        body: JSON.stringify(body),
       })
         .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; }); })
         .then(function (result) {

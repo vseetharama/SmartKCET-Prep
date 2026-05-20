@@ -425,6 +425,10 @@ if (document.getElementById('dropZone')) {
       // Refresh indexed files list
       loadIndexedFiles(subject);
 
+      // Clear the upload queue after successful processing
+      uploadedFiles = [];
+      renderFiles();
+
     } catch (e) {
       console.error('❌ Upload error:', e.message);
 
@@ -537,6 +541,10 @@ if (document.getElementById('dropZone')) {
     showSet(firstSet);
     document.getElementById('setsOutput').scrollIntoView({ behavior:'smooth' });
     console.log('✅ Sets generated successfully:', generatedSets.map((s,i) => `Set ${['A','B','C','D'][i]}: ${s?.length || 0} questions`).join(', '));
+
+    // Clear the upload queue after sets are displayed
+    uploadedFiles = [];
+    renderFiles();
   };
 
   window.showSet = i => {

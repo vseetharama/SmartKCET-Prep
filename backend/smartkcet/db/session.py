@@ -71,6 +71,24 @@ def _create_tables() -> None:
 
     Base.metadata.create_all(engine, checkfirst=True)
 
+    # Add new columns to existing tables if they don't exist yet.
+    # SQLAlchemy's create_all only creates new tables, not new columns.
+    _add_missing_columns()
+
+
+def _add_missing_columns() -> None:
+    """Add columns introduced after initial schema creation (SQLite-safe)."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+
+    # Add exam_name to exams table if missing
+    if "exams" in inspector.get_table_names():
+        columns = [col["name"] for col in inspector.get_columns("exams")]
+        if "exam_name" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE exams ADD COLUMN exam_name VARCHAR(200)"))
+
 
 _create_tables()
 

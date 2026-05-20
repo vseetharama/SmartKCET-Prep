@@ -129,14 +129,29 @@ def list_published_exams(
     buckets: dict[str, list[dict[str, Any]]] = {}
     for exam, set_count in rows:
         created_at = exam.created_at
+
+        # Fetch the actual exam sets for this exam so the UI can link directly
+        sets_stmt = (
+            select(ExamSet)
+            .where(ExamSet.exam_id == exam.id)
+            .order_by(ExamSet.set_label.asc())
+        )
+        exam_sets = session.execute(sets_stmt).scalars().all()
+        sets_payload = [
+            {"exam_set_id": str(es.id), "set_label": es.set_label}
+            for es in exam_sets
+        ]
+
         bucket = buckets.setdefault(exam.subject, [])
         bucket.append(
             {
                 "exam_id": str(exam.id),
+                "exam_name": exam.exam_name,
                 "created_at": (
                     created_at.isoformat() if created_at is not None else None
                 ),
                 "set_count": int(set_count or 0),
+                "sets": sets_payload,
             }
         )
 

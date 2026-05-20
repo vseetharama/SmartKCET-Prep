@@ -105,6 +105,7 @@ class CreateExamRequest(BaseModel):
     """Body for ``POST /api/admin/exams``."""
 
     subject: Optional[str] = None
+    exam_name: Optional[str] = None
 
 
 class PublishExamRequest(BaseModel):
@@ -200,7 +201,7 @@ def create_exam(
         for i in range(len(SET_LABELS))
     ]
 
-    exam = Exam(subject=selected.value)
+    exam = Exam(subject=selected.value, exam_name=payload.exam_name)
     session.add(exam)
     # ``flush`` materialises ``exam.id`` so the FK columns on the set
     # rows resolve, but does NOT commit — a later failure still rolls
@@ -253,6 +254,7 @@ def create_exam(
     return {
         "exam_id": str(exam.id),
         "subject": selected.value,
+        "exam_name": exam.exam_name,
         "set_ids": sets_payload,
         "created_at": created_at.isoformat() if created_at is not None else None,
     }
@@ -366,6 +368,7 @@ def list_exams(
             {
                 "exam_id": str(exam.id),
                 "subject": exam.subject,
+                "exam_name": exam.exam_name,
                 "created_at": created_at.isoformat() if created_at is not None else None,
                 "is_published": bool(exam.is_published),
                 "set_count": int(set_count or 0),
