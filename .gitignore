@@ -40,6 +40,13 @@ wheels/
 .env
 .env.local
 
+# Database files
+*.db
+
+# Temporary test files
+backend/_smoke_task_8.py
+backend/test_import.py
+
 # Node modules (if applicable)
 node_modules/
 npm-debug.log
