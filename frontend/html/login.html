@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SmartKCET Prep — Login</title>
+  <link rel="stylesheet" href="../css/style.css"/>
+</head>
+<body>
+  <div class="bg-mesh"></div>
+
+  <!-- Navbar -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </div>
+      <span class="brand-name">SmartKCET<span class="brand-ai">Prep</span></span>
+    </div>
+    <div class="nav-links">
+      <a href="/login" class="nav-pill active">Login</a>
+      <a href="/register" class="nav-pill">Register</a>
+    </div>
+  </nav>
+
+  <!-- Login Form -->
+  <main style="display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 60px);padding:20px;">
+    <div class="section-card" style="max-width:420px;width:100%;padding:32px;">
+      <h2 style="margin-bottom:8px;">Welcome Back</h2>
+      <p class="input-label" style="margin-bottom:24px;text-transform:none;font-size:0.9rem;">Sign in to your student account</p>
+
+      <div id="loginError" style="display:none;background:rgba(220,38,38,0.1);border:1px solid var(--red);border-radius:var(--rs);padding:10px 14px;margin-bottom:16px;font-size:0.85rem;color:var(--red-l);"></div>
+
+      <form id="loginForm" autocomplete="on">
+        <div class="input-group" style="margin-bottom:16px;">
+          <label class="input-label" for="email">Email</label>
+          <input class="text-input" type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email"/>
+        </div>
+        <div class="input-group" style="margin-bottom:24px;">
+          <label class="input-label" for="password">Password</label>
+          <input class="text-input" type="password" id="password" name="password" placeholder="Your password" required autocomplete="current-password"/>
+        </div>
+        <button type="submit" class="btn-primary" style="width:100%;justify-content:center;" id="loginBtn">
+          Sign In
+        </button>
+      </form>
+
+      <div style="margin-top:20px;text-align:center;">
+        <a href="#" id="adminLoginToggle" class="btn-outline" style="width:100%;justify-content:center;margin-bottom:12px;">
+          Admin Login
+        </a>
+        <p style="font-size:0.85rem;color:var(--muted);">
+          Don't have an account? <a href="/register" style="color:var(--purple-l);">Register</a>
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <script src="../js/auth.js"></script>
+  <script>
+  (function () {
+    var form = document.getElementById('loginForm');
+    var errorEl = document.getElementById('loginError');
+    var loginBtn = document.getElementById('loginBtn');
+    var adminToggle = document.getElementById('adminLoginToggle');
+    var isAdminMode = false;
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.style.display = 'block';
+    }
+
+    function hideError() {
+      errorEl.style.display = 'none';
+    }
+
+    adminToggle.addEventListener('click', function (e) {
+      e.preventDefault();
+      isAdminMode = !isAdminMode;
+      if (isAdminMode) {
+        adminToggle.textContent = 'Student Login';
+        loginBtn.textContent = 'Sign In as Admin';
+      } else {
+        adminToggle.textContent = 'Admin Login';
+        loginBtn.textContent = 'Sign In';
+      }
+      hideError();
+    });
+
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      hideError();
+
+      var email = document.getElementById('email').value.trim();
+      var password = document.getElementById('password').value;
+
+      if (!email || !password) {
+        showError('Please fill in all fields.');
+        return;
+      }
+
+      loginBtn.disabled = true;
+      loginBtn.textContent = 'Signing in…';
+
+      try {
+        var result;
+        if (isAdminMode) {
+          result = await Auth.adminLogin(email, password);
+        } else {
+          result = await Auth.login(email, password);
+        }
+
+        if (result.ok) {
+          // Redirect based on role
+          if (result.data && result.data.role === 'admin') {
+            window.location.href = '/admin/upload';
+          } else {
+            window.location.href = '/dashboard';
+          }
+        } else if (result.status === 503) {
+          // DB unavailable — block dashboard access (REQ-14.4)
+          showError('Service temporarily unavailable. Please try again later.');
+        } else if (result.status === 423) {
+          // Account locked
+          var secs = result.data && result.data.retry_after_sec;
+          var mins = secs ? Math.ceil(secs / 60) : 15;
+          showError('Account locked. Try again in ' + mins + ' minute' + (mins > 1 ? 's' : '') + '.');
+        } else {
+          // Generic auth failure
+          var msg = (result.data && result.data.message) || 'Invalid credentials.';
+          showError(msg);
+        }
+      } catch (err) {
+        showError('Network error. Please try again.');
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = isAdminMode ? 'Sign In as Admin' : 'Sign In';
+      }
+    });
+
+    // Redirect if already authenticated
+    Auth.redirectIfAuthenticated();
+  })();
+  </script>
+</body>
+</html>

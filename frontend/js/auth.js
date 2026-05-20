@@ -1,0 +1,149 @@
+// SmartKCET Prep — Auth Client Module
+// Shared authentication helpers for login, register, logout, and role checks.
+// All calls use credentials: 'include' so the httpOnly cookie is sent.
+// Tokens are NEVER read from or written to localStorage (REQ-14.5).
+
+var Auth = (function () {
+  'use strict';
+
+  // ── Internal helpers ─────────────────────────────────────────────────────
+
+  /**
+   * POST JSON to the given path with credentials: 'include'.
+   * Returns the parsed JSON response and the raw Response object.
+   */
+  async function _post(path, body) {
+    var res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(body),
+    });
+    var data;
+    try {
+      data = await res.json();
+    } catch (e) {
+      data = null;
+    }
+    return { ok: res.ok, status: res.status, data: data };
+  }
+
+  /**
+   * GET from the given path with credentials: 'include'.
+   */
+  async function _get(path) {
+    var res = await fetch(path, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    var data;
+    try {
+      data = await res.json();
+    } catch (e) {
+      data = null;
+    }
+    return { ok: res.ok, status: res.status, data: data };
+  }
+
+  // ── Public API ───────────────────────────────────────────────────────────
+
+  /**
+   * Student login.
+   * POST /api/auth/login with email and password.
+   * Returns { ok, status, data } where data contains role info on success.
+   * On 503 (DB unavailable), returns a structured error blocking dashboard access.
+   */
+  async function login(email, password) {
+    var result = await _post('/api/auth/login', { email: email, password: password });
+    if (result.status === 503) {
+      return {
+        ok: false,
+        status: 503,
+        data: { message: 'Service temporarily unavailable. Please try again later.' },
+      };
+    }
+    return result;
+  }
+
+  /**
+   * Admin login.
+   * POST /api/auth/admin/login with email and password.
+   * Returns { ok, status, data } where data contains role info on success.
+   * On 503 (DB unavailable), returns a structured error blocking dashboard access.
+   */
+  async function adminLogin(email, password) {
+    var result = await _post('/api/auth/admin/login', { email: email, password: password });
+    if (result.status === 503) {
+      return {
+        ok: false,
+        status: 503,
+        data: { message: 'Service temporarily unavailable. Please try again later.' },
+      };
+    }
+    return result;
+  }
+
+  /**
+   * Register a new student account.
+   * POST /api/auth/register with email, password, and displayName.
+   * Returns { ok, status, data } where data contains kcet_student_id on success.
+   */
+  async function register(opts) {
+    return _post('/api/auth/register', {
+      email: opts.email,
+      password: opts.password,
+      display_name: opts.displayName,
+    });
+  }
+
+  /**
+   * Logout the current session.
+   * POST /api/auth/logout, then redirect to /login.
+   */
+  async function logout() {
+    await _post('/api/auth/logout', {});
+    window.location.href = '/login';
+  }
+
+  /**
+   * Get the current user's role by calling GET /api/auth/me.
+   * Since the cookie is httpOnly, we cannot decode it client-side.
+   * Returns { authenticated, role, sub, ... } on success, or null if not authenticated.
+   */
+  async function currentRole() {
+    var result = await _get('/api/auth/me');
+    if (result.ok && result.data && result.data.authenticated) {
+      return result.data;
+    }
+    return null;
+  }
+
+  /**
+   * Check if the user is authenticated and redirect accordingly:
+   * - Students → /dashboard
+   * - Admins → /admin/upload
+   * Returns the user info if authenticated, or null if not.
+   */
+  async function redirectIfAuthenticated() {
+    var user = await currentRole();
+    if (user) {
+      if (user.role === 'admin') {
+        window.location.href = '/admin/upload';
+      } else if (user.role === 'student') {
+        window.location.href = '/dashboard';
+      }
+    }
+    return user;
+  }
+
+  // ── Expose public interface ──────────────────────────────────────────────
+
+  return {
+    login: login,
+    adminLogin: adminLogin,
+    register: register,
+    logout: logout,
+    currentRole: currentRole,
+    redirectIfAuthenticated: redirectIfAuthenticated,
+  };
+})();

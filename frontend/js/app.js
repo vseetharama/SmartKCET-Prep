@@ -1,7 +1,14 @@
-// ExamForge AI — Core App Logic
+// SmartKCET Admin — Core App Logic
 // RAG API Integration Layer + Shared Utilities
 
-// ── Local Storage Store ──────────────────────────────────────────────────────
+// ── Constants ────────────────────────────────────────────────────────────────
+const API_BASE = '/api';
+const ADMIN_UPLOAD_URL = `${API_BASE}/admin/upload`;
+const ADMIN_UPLOAD_SINGLE_URL = `${API_BASE}/admin/upload/single`;
+const ADMIN_UPLOAD_FILES_URL = `${API_BASE}/admin/upload/files`;
+const ADMIN_GENERATE_URL = `${API_BASE}/admin/generate`;
+
+// ── Local Storage Store (UI state only, no auth/endpoint config) ─────────────
 const Store = {
   get: k => { try { return JSON.parse(localStorage.getItem('ef_' + k)); } catch { return null; } },
   set: (k, v) => localStorage.setItem('ef_' + k, JSON.stringify(v)),
@@ -9,86 +16,94 @@ const Store = {
   clear: () => Object.keys(localStorage).filter(k => k.startsWith('ef_')).forEach(k => localStorage.removeItem(k))
 };
 
-// ── Configuration Check ──────────────────────────────────────────────────────
-// Redirect to config page if backend not configured
-(function checkConfig() {
-  const cfg = Store.get('ragConfig');
-  const currentPage = window.location.pathname;
-  const isConfigPage = currentPage.includes('config.html');
-  
-  if (!cfg || !cfg.endpoint) {
-    if (!isConfigPage && currentPage.includes('.html')) {
-      window.location.href = './config.html';
-    }
-  }
-})();
-
 // ── RAG API Client ───────────────────────────────────────────────────────────
 const RAG = {
-  getConfig: () => Store.get('ragConfig') || { endpoint: '', apiKey: '' },
-
   headers() {
-    const cfg = this.getConfig();
-    const h = { 'Content-Type': 'application/json' };
-    if (cfg.apiKey) h['Authorization'] = `Bearer ${cfg.apiKey}`;
-    return h;
+    return { 'Content-Type': 'application/json' };
   },
 
   async health() {
-    const cfg = this.getConfig();
-    if (!cfg.endpoint) throw new Error('No endpoint configured');
-    const res = await fetch(`${cfg.endpoint}/health`, { headers: this.headers() });
+    const res = await fetch(`${API_BASE}/health`, {
+      headers: this.headers(),
+      credentials: 'include'
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   },
 
-  // POST /api/upload — send PYQ files to RAG backend
-  async uploadDocs(files) {
-    const cfg = this.getConfig();
-    if (!cfg.endpoint) throw new Error('RAG endpoint not configured');
+  // POST /api/admin/upload — send PYQ files to RAG backend (admin only) — batch
+  async uploadDocs(files, subject) {
+    if (!subject) throw new Error('Subject is required for upload');
     const form = new FormData();
     files.forEach(f => form.append('files', f));
-    const h = {};
-    if (cfg.apiKey) h['Authorization'] = `Bearer ${cfg.apiKey}`;
-    const res = await fetch(`${cfg.endpoint}/upload`, { method: 'POST', headers: h, body: form });
+    form.append('subject', subject);
+    const res = await fetch(ADMIN_UPLOAD_URL, {
+      method: 'POST',
+      body: form,
+      credentials: 'include'
+    });
     if (!res.ok) throw new Error(`Upload failed: HTTP ${res.status}`);
     return res.json();
-    // Expected response: { success: true, doc_ids: [...], message: "..." }
   },
 
-  // POST /api/generate — generate question sets
-  async generate(payload) {
-    const cfg = this.getConfig();
-    if (!cfg.endpoint) throw new Error('RAG endpoint not configured');
-    const res = await fetch(`${cfg.endpoint}/generate`, {
-      method: 'POST', headers: this.headers(),
-      body: JSON.stringify(payload)
+  // POST /api/admin/upload/single — upload one file at a time for progress tracking
+  async uploadSingleFile(file, subject) {
+    if (!subject) throw new Error('Subject is required for upload');
+    const form = new FormData();
+    form.append('file', file);
+    form.append('subject', subject);
+    const res = await fetch(ADMIN_UPLOAD_SINGLE_URL, {
+      method: 'POST',
+      body: form,
+      credentials: 'include'
     });
-    if (!res.ok) throw new Error(`Generation failed: HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`Upload failed: HTTP ${res.status}`);
     return res.json();
-    /* Expected payload:  { difficulty, count, types, subject, num_sets: 4 }
-       Expected response: { sets: [ [questions], [questions], [questions], [questions] ] }
-       Each question: { id, q, type, topic, opts?, ans, marks } */
   },
 
-  // POST /api/analyze — analyze student answers
+  // GET /api/admin/upload/files?subject=X — list indexed files
+  async getIndexedFiles(subject) {
+    if (!subject) throw new Error('Subject is required');
+    const res = await fetch(`${ADMIN_UPLOAD_FILES_URL}?subject=${encodeURIComponent(subject)}`, {
+      credentials: 'include'
+    });
+    if (!res.ok) throw new Error(`Failed to fetch indexed files: HTTP ${res.status}`);
+    return res.json();
+  },
+
+  // POST /api/admin/generate — generate question sets (admin only)
+  async generate(payload) {
+    if (!payload.subject) throw new Error('Subject is required for generation');
+    const res = await fetch(ADMIN_GENERATE_URL, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify(payload),
+      credentials: 'include'
+    });
+    if (!res.ok) {
+      let errMsg = `Generation failed: HTTP ${res.status}`;
+      try {
+        const errData = await res.json();
+        if (errData.message) errMsg = errData.message;
+        else if (errData.error) errMsg = errData.error;
+      } catch (e) { /* response wasn't JSON */ }
+      throw new Error(errMsg);
+    }
+    return res.json();
+  },
+
+  // POST /api/student/submit — analyze student answers
   async analyze(payload) {
-    const cfg = this.getConfig();
-    if (!cfg.endpoint) throw new Error('RAG endpoint not configured');
-    const res = await fetch(`${cfg.endpoint}/analyze`, {
-      method: 'POST', headers: this.headers(),
-      body: JSON.stringify(payload)
+    const res = await fetch(`${API_BASE}/student/submit`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify(payload),
+      credentials: 'include'
     });
     if (!res.ok) throw new Error(`Analysis failed: HTTP ${res.status}`);
     return res.json();
-    /* Expected payload:  { questions: [...], answers: {...}, student: {...} }
-       Expected response: { percentage, earned, total, topicScores, typeScores,
-                            strong, canImprove, weak, questionResults, recommendation } */
   }
 };
-
-// ── Fallback Question Bank ───────────────────────────────────────────────────
-// Fallback disabled - only backend-generated questions are used
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function getMarks(type) {
@@ -121,7 +136,7 @@ function seededShuffle(arr, seed) {
   }
   return a;
 }
-// Fallback question generation disabled
+
 function localAnalyze(questions, answers) {
   let total = 0, earned = 0;
   const topicScores = {}, typeScores = {}, questionResults = [];
@@ -167,7 +182,7 @@ function localAnalyze(questions, answers) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// INDEX PAGE LOGIC
+// ADMIN UPLOAD PAGE LOGIC (admin-upload.html)
 // ═══════════════════════════════════════════════════════════════════════════
 if (document.getElementById('dropZone')) {
   let uploadedFiles = [];
@@ -180,14 +195,84 @@ if (document.getElementById('dropZone')) {
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
   };
 
-  // ── Backend config ────────────────────────────────────────────────────────
-  function getEndpoint() {
-    return 'http://localhost:8000';
+  // ── Subject Validation Helper ─────────────────────────────────────────────
+  function getSelectedSubject() {
+    const select = document.getElementById('subjectSelect');
+    return select ? select.value : '';
   }
 
-  // Initialize RAG config with endpoint
-  Store.set('ragConfig', { endpoint: getEndpoint(), apiKey: '' });
-  console.log('✅ RAG backend configured:', getEndpoint());
+  function requireSubject(action) {
+    const subject = getSelectedSubject();
+    if (!subject) {
+      showToast(`⚠️ Please select a subject before ${action}`, 'warning');
+      const select = document.getElementById('subjectSelect');
+      if (select) select.focus();
+      return null;
+    }
+    return subject;
+  }
+
+  // ── Subject Change Handler ────────────────────────────────────────────────
+  const subjectSelect = document.getElementById('subjectSelect');
+  if (subjectSelect) {
+    subjectSelect.addEventListener('change', () => {
+      // Clear file queue on subject change
+      uploadedFiles = [];
+      renderFiles();
+
+      // Load indexed files for the new subject
+      const subject = getSelectedSubject();
+      if (subject) {
+        loadIndexedFiles(subject);
+      } else {
+        // Hide indexed files section if no subject selected
+        const section = document.getElementById('indexedFilesSection');
+        if (section) section.style.display = 'none';
+      }
+    });
+  }
+
+  // ── Load Indexed Files ────────────────────────────────────────────────────
+  async function loadIndexedFiles(subject) {
+    const section = document.getElementById('indexedFilesSection');
+    const grid = document.getElementById('indexedFileGrid');
+    if (!section || !grid) return;
+
+    try {
+      const data = await RAG.getIndexedFiles(subject);
+      const files = data.files || [];
+
+      if (files.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+
+      section.style.display = 'block';
+      grid.innerHTML = files.map(f => {
+        const sizeStr = f.file_size >= 1024 * 1024
+          ? (f.file_size / (1024 * 1024)).toFixed(1) + ' MB'
+          : (f.file_size / 1024).toFixed(1) + ' KB';
+        const dateStr = f.indexed_at
+          ? new Date(f.indexed_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+          : '';
+        return `
+          <div class="file-card" style="border-color: #22c55e; background: rgba(34,197,94,0.05);">
+            <div class="file-card-icon" style="color: #22c55e;">✓</div>
+            <div class="file-card-info">
+              <div class="file-card-name">${f.filename}</div>
+              <div class="file-card-size">${sizeStr} · ${f.chunk_count} chunks</div>
+              <div class="file-card-status" style="color: #22c55e;">Indexed ${dateStr}</div>
+            </div>
+          </div>`;
+      }).join('');
+
+      // Show generate button if there are indexed files
+      document.getElementById('genBtn').style.display = 'flex';
+    } catch (e) {
+      console.log('Could not load indexed files:', e.message);
+      section.style.display = 'none';
+    }
+  }
 
   // ── File Upload ───────────────────────────────────────────────────────────
   const dropZone = document.getElementById('dropZone');
@@ -213,7 +298,7 @@ if (document.getElementById('dropZone')) {
         <div class="file-card-info">
           <div class="file-card-name">${f.name}</div>
           <div class="file-card-size">${(f.size/1024).toFixed(1)} KB</div>
-          <div class="file-card-status">✓ Ready to upload</div>
+          <div class="file-card-status" id="fc${i}-status">✓ Ready to upload</div>
         </div>
         <button class="file-card-remove" onclick="removeFile(${i})">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -230,126 +315,146 @@ if (document.getElementById('dropZone')) {
 
   window.removeFile = i => { uploadedFiles.splice(i, 1); renderFiles(); };
 
+  // ── Per-file status update helper ─────────────────────────────────────────
+  function updateFileStatus(index, statusText, statusClass) {
+    const statusEl = document.getElementById(`fc${index}-status`);
+    if (statusEl) {
+      statusEl.textContent = statusText;
+      statusEl.className = 'file-card-status';
+      if (statusClass) statusEl.style.color = statusClass;
+    }
+    const cardEl = document.getElementById(`fc${index}`);
+    if (cardEl && statusClass === '#22c55e') {
+      cardEl.style.borderColor = '#22c55e';
+      cardEl.style.background = 'rgba(34,197,94,0.05)';
+    }
+  }
+
+  // ── Upload files one at a time for progress tracking ──────────────────────
   window.uploadToRAG = async () => {
+    // Require subject selection before upload
+    const subject = requireSubject('uploading');
+    if (!subject) return;
+
     console.log('📤 Upload button clicked');
     console.log('Files ready:', uploadedFiles.length);
-    
-    const endpoint = getEndpoint();
-    console.log('Backend endpoint:', endpoint);
-    
-    if (!endpoint) { showToast('⚠️ Backend URL not configured'); return; }
+    console.log('Subject:', subject);
+
     if (uploadedFiles.length === 0) { showToast('⚠️ No files selected'); return; }
-    
+
     const btn = document.getElementById('uploadToRAGBtn');
     btn.disabled = true;
-    btn.innerHTML = '⏳ Uploading... (checking backend)';
-    
+    btn.innerHTML = '⏳ Uploading...';
+
+    // Remove the remove buttons during upload
+    document.querySelectorAll('.file-card-remove').forEach(el => el.style.display = 'none');
+
+    let totalChunks = 0;
+    let indexedCount = 0;
+    let duplicateCount = 0;
+    let errorCount = 0;
+
     try {
       // Step 1: Test connectivity
       console.log('1️⃣ Testing backend connectivity...');
       const healthTest = await Promise.race([
-        fetch(`${endpoint}/health`),
+        fetch(`${API_BASE}/health`, { credentials: 'include' }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Health check timeout')), 8000))
       ]);
-      
+
       if (!healthTest.ok) {
         throw new Error(`Backend health check failed: HTTP ${healthTest.status}`);
       }
       console.log('✅ Backend is accessible');
-      
-      // Step 2: Prepare files
-      console.log(`2️⃣ Preparing ${uploadedFiles.length} files for upload...`);
-      const form = new FormData();
-      uploadedFiles.forEach((f, idx) => {
-        console.log(`   File ${idx + 1}: ${f.name} (${(f.size/1024).toFixed(1)} KB)`);
-        form.append('files', f);
-      });
-      
-      // Step 3: Upload
-      console.log('3️⃣ Sending upload request...');
-      btn.innerHTML = '⏳ Uploading files...';
-      
-      const uploadRes = await Promise.race([
-        fetch(`${endpoint}/upload`, {
-          method: 'POST',
-          body: form
-        }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timeout after 60 seconds')), 60000))
-      ]);
-      
-      console.log('Upload response status:', uploadRes.status);
-      
-      if (!uploadRes.ok) {
-        const errorText = await uploadRes.text();
-        console.error('Upload failed response:', errorText);
-        throw new Error(`Server error HTTP ${uploadRes.status}: ${errorText.substring(0, 100)}`);
+
+      // Step 2: Upload files one at a time
+      for (let i = 0; i < uploadedFiles.length; i++) {
+        const file = uploadedFiles[i];
+        btn.innerHTML = `⏳ Processing ${i + 1}/${uploadedFiles.length}...`;
+
+        // Update status: Uploading
+        updateFileStatus(i, '⏳ Uploading...', '#f59e0b');
+
+        try {
+          // Update status: Extracting
+          updateFileStatus(i, '📖 Extracting text...', '#3b82f6');
+
+          const result = await RAG.uploadSingleFile(file, subject);
+          console.log(`File ${i + 1} result:`, result);
+
+          if (result.status === 'indexed') {
+            const qInfo = result.questions_extracted ? `, ${result.questions_extracted} MCQs` : '';
+            updateFileStatus(i, `✓ Indexed (${result.chunk_count} chunks${qInfo})`, '#22c55e');
+            totalChunks += result.chunk_count;
+            indexedCount++;
+          } else if (result.status === 'duplicate') {
+            updateFileStatus(i, `⚡ Already indexed (${result.chunk_count} chunks)`, '#8b5cf6');
+            duplicateCount++;
+          } else if (result.status === 'unsupported') {
+            updateFileStatus(i, '⚠️ Unsupported file type', '#f59e0b');
+            errorCount++;
+          } else if (result.status === 'empty') {
+            updateFileStatus(i, '⚠️ No text extracted', '#f59e0b');
+            errorCount++;
+          }
+        } catch (fileErr) {
+          console.error(`Error uploading file ${i + 1}:`, fileErr);
+          updateFileStatus(i, '❌ Upload failed', '#ef4444');
+          errorCount++;
+        }
       }
-      
-      const uploadData = await uploadRes.json();
-      console.log('✅ Upload complete:', uploadData);
-      
-      // Step 4: Verify chunks
-      console.log('4️⃣ Verifying chunks in backend...');
-      const debugRes = await fetch(`${endpoint}/debug`);
-      const debugData = await debugRes.json();
-      console.log('📊 Chunks indexed:', debugData.chunks_indexed);
-      localStorage.setItem('ef_backendChunks', debugData.chunks_indexed);
-      
-      if (debugData.chunks_indexed === 0) {
-        showToast('⚠️ Files uploaded but no text extracted. Try PDF/DOCX/TXT with readable text.', 'warning');
-        console.warn('⚠️ No chunks indexed - files may be unreadable');
-        btn.disabled = false;
-        btn.innerHTML = '⚠️ Retry with Different Files';
-        return;
+
+      // Step 3: Summary
+      localStorage.setItem('ef_backendChunks', totalChunks);
+
+      let summaryParts = [];
+      if (indexedCount > 0) summaryParts.push(`${indexedCount} indexed`);
+      if (duplicateCount > 0) summaryParts.push(`${duplicateCount} duplicates skipped`);
+      if (errorCount > 0) summaryParts.push(`${errorCount} failed`);
+
+      if (indexedCount > 0) {
+        showToast(`✅ ${summaryParts.join(', ')} — ${totalChunks} total chunks for ${subject}`, 'success');
+        document.getElementById('genBtn').style.display = 'flex';
+      } else if (duplicateCount > 0 && errorCount === 0) {
+        showToast(`⚡ All files already indexed for ${subject}`, 'success');
+        document.getElementById('genBtn').style.display = 'flex';
+      } else {
+        showToast(`⚠️ ${summaryParts.join(', ')}. Try different files.`, 'warning');
       }
-      
-      // Success!
-      uploadedFiles.forEach((_, i) => {
-        const elem = document.getElementById(`fc${i}`);
-        if (elem) elem.classList.add('uploaded');
-      });
-      
-      showToast(`✅ Success! ${debugData.chunks_indexed} chunks indexed. Click "Generate 4 Sets" to proceed.`, 'success');
-      document.getElementById('genBtn').style.display = 'flex';
-      renderFiles();
+
+      // Refresh indexed files list
+      loadIndexedFiles(subject);
+
     } catch (e) {
       console.error('❌ Upload error:', e.message);
-      console.error('Full error:', e);
-      
+
       let friendlyMsg = e.message;
       if (e.message.includes('Failed to fetch')) {
-        friendlyMsg = '❌ Cannot reach backend. Is the Jupyter notebook running? http://localhost:8000 should be accessible.';
+        friendlyMsg = '❌ Cannot reach backend. Is the server running?';
       } else if (e.message.includes('timeout')) {
         friendlyMsg = '❌ Upload timed out. Files may be too large or network is slow.';
+      } else if (e.message.includes('HTTP 401') || e.message.includes('HTTP 403')) {
+        friendlyMsg = '❌ Authentication error. Please log in again.';
       } else if (e.message.includes('HTTP')) {
         friendlyMsg = `❌ Server error: ${e.message}`;
       }
-      
+
       showToast(friendlyMsg, 'error');
-      console.log('✓ Check browser console (F12) for more details');
     } finally {
       btn.disabled = false;
       btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Send to Backend`;
     }
   };
 
-  // ── Slider ────────────────────────────────────────────────────────────────
-  // (removed — question count is fixed at 10)
-
-  // ── Difficulty ────────────────────────────────────────────────────────────
-  // (removed — difficulty is fixed at medium)
-
-  function getTypes() {
-    const map = { MCQ:'t_mcq','Short Answer':'t_short','Long Answer':'t_long','True/False':'t_tf','Fill in the Blank':'t_fill' };
-    return Object.entries(map).filter(([,id]) => document.getElementById(id)?.checked).map(([t]) => t);
-  }
-
   // ── Generate ──────────────────────────────────────────────────────────────
   window.generatePapers = async () => {
+    // Require subject selection before generation
+    const subject = requireSubject('generating questions');
+    if (!subject) return;
+
     const types = ['MCQ'];
     const count = FIXED_COUNT;
     const difficulty = 'medium';
-    const subject = 'General Subject';
     const btn = document.getElementById('genBtn');
     btn.disabled = true;
     document.getElementById('genProgress').style.display = 'block';
@@ -370,69 +475,57 @@ if (document.getElementById('dropZone')) {
     for (let i = 0; i < steps.length; i++) await tick(i, ((i+1)/steps.length)*100);
 
     try {
-      const endpoint = getEndpoint();
-      if (!endpoint) throw new Error('Backend URL not configured');
-      
-      // Health check
-      try {
-        const healthRes = await fetch(`${endpoint}/health`);
-        if (!healthRes.ok) throw new Error('Backend not responding');
-        console.log('✅ Backend is alive');
-      } catch (e) {
-        throw new Error(`Backend unreachable at ${endpoint}. Is the server running?`);
+      console.log(`🔄 Calling /api/admin/generate for subject: ${subject}...`);
+      const data = await RAG.generate({ difficulty, count, types, subject, num_sets: 4 });
+
+      // Handle generation success
+      if (data.sets && data.sets.length) {
+        // New format: sets are returned directly from DB-driven generation
+        generatedSets = data.sets;
+        if (data.added && data.added > 0) {
+          showToast(`✅ ${data.added} questions organized into 4 sets for ${subject}!`, 'success');
+        }
+      } else if (data.added && data.added > 0) {
+        // Legacy format: questions added to DB but no sets returned for display
+        showToast(`✅ ${data.added} questions added to ${subject} question bank!`, 'success');
+        generatedSets = [];
+      } else if (data.added === 0 || data.warning) {
+        // Zero-question completion — show warning state
+        showToast(data.warning || '⚠️ No questions available. Upload question papers first.', 'warning');
+        btn.disabled = false;
+        document.getElementById('genProgress').style.display = 'none';
+        return;
+      } else {
+        generatedSets = [];
       }
-      
-      // Check if chunks are indexed
-      const debugRes = await fetch(`${endpoint}/debug`);
-      const debugData = await debugRes.json();
-      console.log('📊 Chunks available:', debugData.chunks_indexed);
-      
-      if (debugData.chunks_indexed === 0) {
-        throw new Error('❌ No documents indexed. Please upload and send exam papers to the backend first.');
-      }
-      
-      console.log('🔄 Calling /generate endpoint...');
-      const res = await fetch(`${endpoint}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ difficulty, count, types, subject, num_sets: 4 })
-      });
-      
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`Backend error (${res.status}): ${err}`);
-      }
-      const data = await res.json();
-      if (!data.sets || !data.sets.length) throw new Error('Empty response from backend');
-      generatedSets = data.sets;
-      showToast('✅ Generated 4 paper sets from your uploaded papers!', 'success');
     } catch (e) {
       console.error('❌ Generation error:', e);
       showToast(`❌ ${e.message}`, 'error');
       generatedSets = [];
     }
 
-
     const config = { difficulty, count, types, subject, sets: generatedSets };
     Store.set('examConfig', config);
 
     btn.disabled = false;
     document.getElementById('genProgress').style.display = 'none';
-    
+
     // Check if any sets have questions
     const totalQuestions = generatedSets.reduce((sum, set) => sum + (set ? set.length : 0), 0);
     if (totalQuestions === 0) {
-      showToast('❌ No questions generated. Try uploading different papers.', 'error');
+      if (!generatedSets.length) {
+        showToast('❌ No questions generated. Try uploading different papers.', 'error');
+      }
       console.error('❌ All sets are empty:', generatedSets);
       return;
     }
-    
+
     document.getElementById('setsOutput').style.display = 'block';
     ['A','B','C','D'].forEach((l,i) => {
       const count = generatedSets[i]?.length || 0;
       document.getElementById(`tabCount${i}`).textContent = count > 0 ? `${count} Qs` : 'Empty';
     });
-    
+
     // Show first non-empty set
     let firstSet = 0;
     for (let i = 0; i < generatedSets.length; i++) {

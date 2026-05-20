@@ -3,317 +3,128 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Backend Configuration — ExamForge AI</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .config-container {
-      background: #0f172a;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
-      padding: 40px;
-      max-width: 500px;
-      width: 100%;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    }
-    .config-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 30px;
-    }
-    .config-icon {
-      width: 40px;
-      height: 40px;
-      background: linear-gradient(135deg, #7c3aed, #a855f7);
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .config-icon svg {
-      width: 24px;
-      height: 24px;
-      stroke: white;
-      stroke-width: 2;
-      fill: none;
-    }
-    .config-header h1 {
-      color: white;
-      font-size: 24px;
-      font-weight: 600;
-    }
-    .config-header p {
-      color: #94a3b8;
-      font-size: 14px;
-    }
-    .form-group {
-      margin-bottom: 24px;
-    }
-    label {
-      display: block;
-      color: #cbd5e1;
-      font-size: 14px;
-      font-weight: 500;
-      margin-bottom: 8px;
-    }
-    input {
-      width: 100%;
-      padding: 12px;
-      background: rgba(15, 23, 42, 0.5);
-      border: 1px solid rgba(148, 163, 184, 0.2);
-      border-radius: 8px;
-      color: white;
-      font-size: 14px;
-      font-family: monospace;
-      transition: all 0.2s;
-    }
-    input:focus {
-      outline: none;
-      border-color: #a855f7;
-      background: rgba(15, 23, 42, 0.8);
-      box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.1);
-    }
-    .input-hint {
-      color: #64748b;
-      font-size: 12px;
-      margin-top: 6px;
-    }
-    .button-group {
-      display: flex;
-      gap: 12px;
-      margin-top: 30px;
-    }
-    button {
-      flex: 1;
-      padding: 12px;
-      border: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .btn-primary {
-      background: linear-gradient(135deg, #7c3aed, #a855f7);
-      color: white;
-    }
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(168, 85, 247, 0.3);
-    }
-    .btn-primary:active {
-      transform: translateY(0);
-    }
-    .btn-secondary {
-      background: rgba(148, 163, 184, 0.1);
-      color: #cbd5e1;
-      border: 1px solid rgba(148, 163, 184, 0.2);
-    }
-    .btn-secondary:hover {
-      background: rgba(148, 163, 184, 0.15);
-    }
-    .status-message {
-      margin-top: 20px;
-      padding: 12px;
-      border-radius: 8px;
-      font-size: 13px;
-      display: none;
-    }
-    .status-message.success {
-      background: rgba(34, 197, 94, 0.1);
-      border: 1px solid rgba(34, 197, 94, 0.3);
-      color: #86efac;
-      display: block;
-    }
-    .status-message.error {
-      background: rgba(239, 68, 68, 0.1);
-      border: 1px solid rgba(239, 68, 68, 0.3);
-      color: #fca5a5;
-      display: block;
-    }
-    .status-message.info {
-      background: rgba(59, 130, 246, 0.1);
-      border: 1px solid rgba(59, 130, 246, 0.3);
-      color: #93c5fd;
-      display: block;
-    }
-    .presets {
-      margin-bottom: 24px;
-      padding-bottom: 24px;
-      border-bottom: 1px solid rgba(148, 163, 184, 0.1);
-    }
-    .preset-label {
-      color: #94a3b8;
-      font-size: 12px;
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 8px;
-      display: block;
-    }
-    .preset-buttons {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .preset-btn {
-      padding: 8px 12px;
-      background: rgba(148, 163, 184, 0.1);
-      border: 1px solid rgba(148, 163, 184, 0.2);
-      color: #cbd5e1;
-      border-radius: 6px;
-      font-size: 12px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .preset-btn:hover {
-      background: rgba(168, 85, 247, 0.2);
-      border-color: #a855f7;
-      color: #e9d5ff;
-    }
-  </style>
+  <title>SmartKCET Admin — Diagnostics</title>
+  <link rel="stylesheet" href="../css/style.css"/>
 </head>
 <body>
-  <div class="config-container">
-    <div class="config-header">
-      <div class="config-icon">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m2.12 2.12l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m2.12-2.12l4.24-4.24M19.78 19.78l-4.24-4.24m-2.12-2.12l-4.24-4.24"/></svg>
-      </div>
-      <div>
-        <h1>Backend Setup</h1>
-        <p>Configure your backend endpoint</p>
-      </div>
-    </div>
+  <div class="bg-mesh"></div>
 
-    <div class="presets">
-      <span class="preset-label">Quick Setup</span>
-      <div class="preset-buttons">
-        <button class="preset-btn" onclick="setPreset('http://localhost:8000')">Jupyter (localhost)</button>
-        <button class="preset-btn" onclick="setPreset('http://127.0.0.1:8000')">Local Machine</button>
-        <button class="preset-btn" onclick="setPreset('http://192.168.1.100:8000')">Network</button>
+  <!-- Admin Navbar -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
       </div>
+      <span class="brand-name">SmartKCET<span class="brand-ai">Admin</span></span>
     </div>
+    <div class="nav-links">
+      <a href="/admin/upload" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Upload
+      </a>
+      <a href="/admin/questions" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Questions
+      </a>
+      <a href="/admin/exams" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        Exams
+      </a>
+      <a href="/admin/analytics" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Analytics
+      </a>
+    </div>
+    <div class="nav-actions">
+      <a href="#" class="nav-pill" id="logoutBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </a>
+    </div>
+  </nav>
 
-    <form onsubmit="saveConfig(event)">
-      <div class="form-group">
-        <label for="endpoint">Backend URL</label>
-        <input 
-          type="text" 
-          id="endpoint" 
-          placeholder="http://localhost:8000"
-          required
-        />
-        <div class="input-hint">
-          💡 Get this from your Jupyter notebook output, or use Quick Setup above
+  <main class="main-wrap">
+    <!-- Backend Diagnostics Card -->
+    <div class="section-card">
+      <div class="section-card-header">
+        <div class="section-icon purple">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33h.09a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v.09a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        </div>
+        <div>
+          <h2>Backend Diagnostics</h2>
+          <p class="section-sub">Developer diagnostic page — test backend connectivity</p>
         </div>
       </div>
-
-      <div class="form-group">
-        <label for="apiKey">API Key (Optional)</label>
-        <input 
-          type="text" 
-          id="apiKey" 
-          placeholder="Leave empty if not required"
-        />
-        <div class="input-hint">
-          🔐 Only needed if backend requires authentication
+      <div class="section-body">
+        <!-- Endpoint Info -->
+        <div class="input-group" style="margin-bottom:20px">
+          <label class="input-label">API Endpoint</label>
+          <input
+            type="text"
+            class="text-input"
+            value="/api"
+            disabled
+            aria-label="Fixed API endpoint"
+          />
         </div>
+
+        <!-- Actions -->
+        <div class="rag-actions">
+          <button type="button" class="btn-outline" id="testBtn" onclick="testConnection()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Test Connection
+          </button>
+        </div>
+
+        <!-- Connection Result -->
+        <div id="connectionResult" class="connection-result" style="display:none"></div>
       </div>
-
-      <div class="button-group">
-        <button type="button" class="btn-secondary" onclick="testConnection()">
-          🔍 Test Connection
-        </button>
-        <button type="submit" class="btn-primary">
-          ✓ Save & Continue
-        </button>
-      </div>
-
-      <div id="statusMessage" class="status-message"></div>
-    </form>
-
-    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid rgba(148, 163, 184, 0.1);">
-      <p style="color: #64748b; font-size: 12px; line-height: 1.6;">
-        <strong>📌 How to get backend URL:</strong><br/>
-        1. Open Jupyter notebook: <code style="color: #cbd5e1; background: rgba(15, 23, 42, 0.8); padding: 2px 4px; border-radius: 3px;">backend/examforge_backend.ipynb</code><br/>
-        2. Run cell 8 (server startup)<br/>
-        3. Copy the URL from output (usually <code style="color: #cbd5e1; background: rgba(15, 23, 42, 0.8); padding: 2px 4px; border-radius: 3px;">http://localhost:8000</code>)
-      </p>
     </div>
-  </div>
+  </main>
 
+  <script src="../js/auth.js"></script>
   <script>
-    // Load saved config
-    const Store = {
-      get: k => { try { return JSON.parse(localStorage.getItem('ef_' + k)); } catch { return null; } },
-      set: (k, v) => localStorage.setItem('ef_' + k, JSON.stringify(v))
-    };
-
-    function setPreset(url) {
-      document.getElementById('endpoint').value = url;
-    }
-
-    async function testConnection() {
-      const endpoint = document.getElementById('endpoint').value.trim();
-      if (!endpoint) {
-        showStatus('Please enter a backend URL', 'error');
+    // ── Admin Auth Guard ──────────────────────────────────────────────────────
+    (async function () {
+      var user = await Auth.currentRole();
+      if (!user || user.role !== 'admin') {
+        window.location.href = '/login';
         return;
       }
+    })();
 
-      showStatus('Testing connection...', 'info');
+    // Logout handler
+    document.getElementById('logoutBtn').addEventListener('click', function (e) {
+      e.preventDefault();
+      fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+        .finally(function() { window.location.href = '/login'; });
+    });
+
+    // ── Test Connection ───────────────────────────────────────────────────────
+    async function testConnection() {
+      var resultEl = document.getElementById('connectionResult');
+
+      resultEl.textContent = 'Testing connection...';
+      resultEl.className = 'connection-result';
+      resultEl.style.display = 'block';
+
       try {
-        const res = await fetch(`${endpoint}/health`, { 
+        var res = await fetch('/api/health', {
           method: 'GET',
-          mode: 'cors'
+          credentials: 'include'
         });
         if (res.ok) {
-          const data = await res.json();
-          showStatus(`✓ Connected! Backend is running. (${data.chunks_indexed} chunks indexed)`, 'success');
+          var data = await res.json();
+          resultEl.textContent = '\u2713 Connected! Backend is running. Status: ' + (data.status || 'ok');
+          resultEl.className = 'connection-result success';
         } else {
-          showStatus(`✗ Backend returned error (${res.status})`, 'error');
+          resultEl.textContent = '\u2717 Backend returned error (' + res.status + ')';
+          resultEl.className = 'connection-result error';
         }
       } catch (e) {
-        showStatus(`✗ Cannot connect: ${e.message}. Make sure Jupyter notebook is running.`, 'error');
+        resultEl.textContent = '\u2717 Cannot connect: ' + e.message;
+        resultEl.className = 'connection-result error';
       }
-    }
-
-    function showStatus(msg, type) {
-      const el = document.getElementById('statusMessage');
-      el.textContent = msg;
-      el.className = `status-message ${type}`;
-    }
-
-    function saveConfig(e) {
-      e.preventDefault();
-      const endpoint = document.getElementById('endpoint').value.trim();
-      const apiKey = document.getElementById('apiKey').value.trim();
-      
-      if (!endpoint) {
-        showStatus('Backend URL is required', 'error');
-        return;
-      }
-
-      Store.set('ragConfig', { endpoint, apiKey });
-      showStatus('✓ Configuration saved! Redirecting...', 'success');
-      setTimeout(() => {
-        window.location.href = './index.html';
-      }, 1500);
-    }
-
-    // Check if already configured
-    const cfg = Store.get('ragConfig');
-    if (cfg && cfg.endpoint) {
-      document.getElementById('endpoint').value = cfg.endpoint;
-      document.getElementById('apiKey').value = cfg.apiKey || '';
     }
   </script>
 </body>
