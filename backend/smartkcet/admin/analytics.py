@@ -45,7 +45,7 @@ from sqlalchemy.orm import Session
 
 from ..db.models import Exam, ExamSet, Submission, Subject, User
 from ..db.session import get_session
-from ..middleware.rbac import require_admin
+from ..middleware.rbac import require_admin, require_authenticated
 
 router = APIRouter()
 
@@ -95,7 +95,7 @@ def get_analytics(
     limit: int = Query(default=_DEFAULT_LIMIT, ge=1),
     offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_session),
-    _admin: dict = Depends(require_admin),
+    _admin: dict = Depends(require_authenticated),
 ) -> Any:
     """Return aggregate analytics across all students with optional filters.
 
@@ -104,7 +104,22 @@ def get_analytics(
     and ``kcet_student_id`` fields for the admin results table.
 
     Default sort: ``submitted_at DESC`` (REQ-12.3).
+    
+    **Institution Integration (REQ-7.4, 9.7):**
+    - Platform admins see all submissions across all students
+    - Institution admins see only submissions from students linked to their institution
     """
+    
+    # Require admin role (platform_admin or institution_admin)
+    admin_role = _admin.get("role")
+    if admin_role not in ("platform_admin", "institution_admin"):
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={
+                "error": "forbidden",
+                "message": "Admin access required",
+            },
+        )
 
     # --- Validate filters ---------------------------------------------------
 
@@ -157,6 +172,16 @@ def get_analytics(
         .join(Exam, Exam.id == ExamSet.exam_id)
         .join(User, User.id == Submission.user_id)
     )
+
+    # Institution scoping (REQ-7.4, 7.7, 9.7):
+    # - Platform admins see all submissions
+    # - Institution admins see only submissions from their institution's students
+    admin_role = _admin.get("role")
+    admin_institution_id = _admin.get("institution_id")
+    
+    if admin_role == "institution_admin" and admin_institution_id is not None:
+        # Scope to institution's students only (REQ-7.7)
+        stmt = stmt.where(User.institution_id == admin_institution_id)
 
     # Apply filters
     if selected_subject is not None:

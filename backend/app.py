@@ -50,6 +50,8 @@ def _free_port(port: int) -> None:
 
 
 def main() -> None:
+    import asyncio
+    
     port = int(os.getenv("SMARTKCET_PORT", "8000"))
     host = os.getenv("SMARTKCET_HOST", "127.0.0.1")
     _free_port(port)
@@ -62,7 +64,17 @@ def main() -> None:
     print(f"Health: http://{host}:{port}/health")
     print(f"{bar}\n")
 
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    # Set the event loop policy for Python 3.14 compatibility
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    uvicorn.run(
+        app, 
+        host=host, 
+        port=port, 
+        log_level="warning",
+        loop="asyncio"  # Explicitly set the event loop
+    )
 
 
 if __name__ == "__main__":

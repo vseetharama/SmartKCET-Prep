@@ -5,6 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>SmartKCET Prep — Login</title>
   <link rel="stylesheet" href="../css/style.css"/>
+  <style>
+    .role-tabs {
+      display: flex;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--rs);
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+    .role-tab {
+      flex: 1;
+      padding: 9px 12px;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      border-right: 1px solid var(--border);
+    }
+    .role-tab:last-child { border-right: none; }
+    .role-tab.active {
+      background: rgba(124,58,237,0.15);
+      color: var(--purple-l);
+    }
+    .role-tab:hover:not(.active) {
+      background: var(--s2);
+      color: var(--text);
+    }
+  </style>
 </head>
 <body>
   <div class="bg-mesh"></div>
@@ -26,8 +57,15 @@
   <!-- Login Form -->
   <main style="display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 60px);padding:20px;">
     <div class="section-card" style="max-width:420px;width:100%;padding:32px;">
-      <h2 style="margin-bottom:8px;">Welcome Back</h2>
-      <p class="input-label" style="margin-bottom:24px;text-transform:none;font-size:0.9rem;">Sign in to your student account</p>
+      <h2 style="margin-bottom:4px;">Welcome Back</h2>
+      <p class="input-label" style="margin-bottom:20px;text-transform:none;font-size:0.9rem;">Sign in to your account</p>
+
+      <!-- Role selector tabs -->
+      <div class="role-tabs" role="tablist" aria-label="Login type">
+        <button class="role-tab active" id="tabStudent" role="tab" aria-selected="true"  data-role="student">Student</button>
+        <button class="role-tab"        id="tabInstitution" role="tab" aria-selected="false" data-role="institution">Institution</button>
+        <button class="role-tab"        id="tabAdmin" role="tab" aria-selected="false" data-role="admin">Platform Admin</button>
+      </div>
 
       <div id="loginError" style="display:none;background:rgba(220,38,38,0.1);border:1px solid var(--red);border-radius:var(--rs);padding:10px 14px;margin-bottom:16px;font-size:0.85rem;color:var(--red-l);"></div>
 
@@ -45,53 +83,69 @@
         </button>
       </form>
 
-      <div style="margin-top:20px;text-align:center;">
-        <a href="#" id="adminLoginToggle" class="btn-outline" style="width:100%;justify-content:center;margin-bottom:12px;">
-          Admin Login
-        </a>
-        <p style="font-size:0.85rem;color:var(--muted);">
-          Don't have an account? <a href="/register" style="color:var(--purple-l);">Register</a>
-        </p>
-      </div>
+      <p style="margin-top:20px;text-align:center;font-size:0.85rem;color:var(--muted);">
+        Don't have an account? <a href="/register" style="color:var(--purple-l);">Register</a>
+      </p>
     </div>
   </main>
 
   <script src="../js/auth.js"></script>
   <script>
   (function () {
-    var form = document.getElementById('loginForm');
-    var errorEl = document.getElementById('loginError');
-    var loginBtn = document.getElementById('loginBtn');
-    var adminToggle = document.getElementById('adminLoginToggle');
-    var isAdminMode = false;
+    var form      = document.getElementById('loginForm');
+    var errorEl   = document.getElementById('loginError');
+    var loginBtn  = document.getElementById('loginBtn');
+    var tabs      = document.querySelectorAll('.role-tab');
+    var currentRole = 'student'; // 'student' | 'institution' | 'admin'
 
+    // ── Role tab switching ──────────────────────────────────────────────
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        tabs.forEach(function (t) {
+          t.classList.remove('active');
+          t.setAttribute('aria-selected', 'false');
+        });
+        tab.classList.add('active');
+        tab.setAttribute('aria-selected', 'true');
+        currentRole = tab.getAttribute('data-role');
+        hideError();
+      });
+    });
+
+    // ── Helpers ─────────────────────────────────────────────────────────
     function showError(msg) {
       errorEl.textContent = msg;
       errorEl.style.display = 'block';
     }
-
     function hideError() {
       errorEl.style.display = 'none';
     }
 
-    adminToggle.addEventListener('click', function (e) {
-      e.preventDefault();
-      isAdminMode = !isAdminMode;
-      if (isAdminMode) {
-        adminToggle.textContent = 'Student Login';
-        loginBtn.textContent = 'Sign In as Admin';
-      } else {
-        adminToggle.textContent = 'Admin Login';
-        loginBtn.textContent = 'Sign In';
-      }
-      hideError();
-    });
+    function _safeReturnUrl() {
+      try {
+        var params = new URLSearchParams(window.location.search || '');
+        var raw = params.get('return');
+        if (!raw) return null;
+        if (raw.charAt(0) !== '/' || raw.charAt(1) === '/') return null;
+        return raw;
+      } catch (e) { return null; }
+    }
 
+    function _roleHome(role, data) {
+      if (role === 'admin' || role === 'platform_admin') return '/admin/upload';
+      if (role === 'institution_admin') return '/institution/dashboard';
+      // Institution students get their own platform
+      if (data && data.redirect) return data.redirect;
+      if (data && data.student_subtype === 'institution_linked') return '/student/institution/dashboard';
+      return '/dashboard';
+    }
+
+    // ── Form submit ──────────────────────────────────────────────────────
     form.addEventListener('submit', async function (e) {
       e.preventDefault();
       hideError();
 
-      var email = document.getElementById('email').value.trim();
+      var email    = document.getElementById('email').value.trim();
       var password = document.getElementById('password').value;
 
       if (!email || !password) {
@@ -104,29 +158,25 @@
 
       try {
         var result;
-        if (isAdminMode) {
+        if (currentRole === 'admin') {
           result = await Auth.adminLogin(email, password);
+        } else if (currentRole === 'institution') {
+          result = await Auth.institutionLogin(email, password);
         } else {
           result = await Auth.login(email, password);
         }
 
         if (result.ok) {
-          // Redirect based on role
-          if (result.data && result.data.role === 'admin') {
-            window.location.href = '/admin/upload';
-          } else {
-            window.location.href = '/dashboard';
-          }
+          var role = (result.data && result.data.role) || '';
+          var nextUrl = _safeReturnUrl();
+          window.location.href = nextUrl || _roleHome(role, result.data);
         } else if (result.status === 503) {
-          // DB unavailable — block dashboard access (REQ-14.4)
           showError('Service temporarily unavailable. Please try again later.');
         } else if (result.status === 423) {
-          // Account locked
           var secs = result.data && result.data.retry_after_sec;
           var mins = secs ? Math.ceil(secs / 60) : 15;
           showError('Account locked. Try again in ' + mins + ' minute' + (mins > 1 ? 's' : '') + '.');
         } else {
-          // Generic auth failure
           var msg = (result.data && result.data.message) || 'Invalid credentials.';
           showError(msg);
         }
@@ -134,12 +184,25 @@
         showError('Network error. Please try again.');
       } finally {
         loginBtn.disabled = false;
-        loginBtn.textContent = isAdminMode ? 'Sign In as Admin' : 'Sign In';
+        loginBtn.textContent = 'Sign In';
       }
     });
 
-    // Redirect if already authenticated
-    Auth.redirectIfAuthenticated();
+    // ── Redirect if already authenticated ───────────────────────────────
+    (async function () {
+      var user = await Auth.currentRole();
+      if (!user) return;
+      var nextUrl = _safeReturnUrl();
+      window.location.href = nextUrl || _roleHome(user.role);
+    })();
+
+    // ── Session-expired notice ───────────────────────────────────────────
+    try {
+      var params = new URLSearchParams(window.location.search || '');
+      if (params.get('expired') === '1') {
+        showError('Your session has expired. Please log in again.');
+      }
+    } catch (e) {}
   })();
   </script>
 </body>

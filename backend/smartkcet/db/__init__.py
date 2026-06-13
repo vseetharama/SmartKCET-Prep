@@ -21,6 +21,15 @@ from .models import (
     User,
 )
 from .session import DATABASE_URL, SessionLocal, engine, get_session
+from .subscription_models import (
+    BillingRecord,
+    Institution,
+    Invitation,
+    Subscription,
+    SubscriptionEvent,
+    SubscriptionPlan,
+    UsageRecord,
+)
 
 __all__ = [
     "Base",
@@ -38,4 +47,11 @@ __all__ = [
     "User",
     "engine",
     "get_session",
+    "Institution",
+    "SubscriptionPlan",
+    "Subscription",
+    "BillingRecord",
+    "UsageRecord",
+    "SubscriptionEvent",
+    "Invitation",
 ]

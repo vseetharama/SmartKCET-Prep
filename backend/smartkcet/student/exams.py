@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from ..db.models import Exam, ExamSet, ExamSetQuestion, Question, Subject
 from ..db.session import get_session
 from ..middleware.rbac import require_student
+from ..subscription.dependencies import get_access_control, require_exam_access
 
 router = APIRouter()
 
@@ -68,9 +69,11 @@ def _normalise_subject(value: Optional[str]) -> Optional[Subject]:
 
 @router.get("/exams")
 def list_published_exams(
+    request: Request,
     subject: Optional[str] = Query(default=None),
     session: Session = Depends(get_session),
     _student: dict = Depends(require_student),
+    access_control = Depends(get_access_control),
 ) -> Any:
     """Return per-subject groupings of published exams visible to students.
 
@@ -87,12 +90,27 @@ def list_published_exams(
               ]
             },
             ...
-          ]
+          ],
+          "remaining_attempts": {
+            "total_attempts": 2,
+            "max_attempts": 5,
+            "remaining_attempts": 3,
+            "is_unlimited": false,
+            "period_start": "2024-01-01T00:00:00",
+            "period_end": "2024-01-08T00:00:00"
+          }
         }
 
     Subjects without at least one published exam are omitted.  When the
     optional ``?subject=`` filter narrows the scope to a single subject
     that has no published exam, the response is ``{"subjects": []}``.
+    
+    **Institution Integration (REQ-7.3, 9.7):**
+    Students linked to institutions see both platform-wide exams (institution_id IS NULL)
+    and institution-specific exams (institution_id matches their institution).
+    
+    **Subscription Integration (REQ-1.5, 2.4):**
+    Response includes remaining exam attempts for display on exam selection screen.
     """
 
     selected: Optional[Subject] = None
@@ -106,10 +124,10 @@ def list_published_exams(
             )
         selected = normalised
 
-    # Pull every PUBLISHED exam (optionally scoped) plus its set_count
-    # in a single query.  Sorting by ``created_at DESC`` matches the
-    # admin list order so the most recent exam shows first when an
-    # admin publishes a fresh batch.
+    # Get student's institution_id and subtype from token payload
+    student_institution_id = _student.get("institution_id")
+    student_subtype = _student.get("student_subtype", "direct_subscriber")
+
     stmt = (
         select(Exam, func.count(ExamSet.id).label("set_count"))
         .outerjoin(ExamSet, ExamSet.exam_id == Exam.id)
@@ -117,6 +135,19 @@ def list_published_exams(
         .group_by(Exam.id)
         .order_by(Exam.created_at.desc(), Exam.id.asc())
     )
+
+    # ── Strict exam isolation ────────────────────────────────────────────────
+    # Access matrix:
+    #   direct_subscriber  → platform-wide exams only (institution_id IS NULL)
+    #   institution_linked → their institution's exams only (institution_id == theirs)
+    #                        NOT platform-wide, NOT other institutions
+    if student_subtype == "institution_linked" and student_institution_id is not None:
+        # Institution student: ONLY see exams belonging to their institution
+        stmt = stmt.where(Exam.institution_id == student_institution_id)
+    else:
+        # Personal student (direct_subscriber or no subtype): platform-wide only
+        stmt = stmt.where(Exam.institution_id.is_(None))
+
     if selected is not None:
         stmt = stmt.where(Exam.subject == selected.value)
 
@@ -164,7 +195,23 @@ def list_published_exams(
         for subject_value, exams in buckets.items()
     ]
 
-    return {"subjects": subjects_payload}
+    # Get remaining attempts for display (REQ-1.5, 2.4)
+    from ..middleware.rbac import current_user
+    user = current_user(request, session)
+    remaining_attempts_data = None
+    if user:
+        try:
+            remaining_attempts_data = access_control.get_remaining_attempts(user.id)
+        except Exception as exc:
+            # If we can't get remaining attempts, log but don't fail the request
+            import logging
+            logger = logging.getLogger("smartkcet.student.exams")
+            logger.warning("Failed to get remaining attempts for user %s: %s", user.id, exc)
+
+    return {
+        "subjects": subjects_payload,
+        "remaining_attempts": remaining_attempts_data,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +224,7 @@ def get_exam_set_questions(
     exam_set_id: str,
     session: Session = Depends(get_session),
     _student: dict = Depends(require_student),
+    _exam_access: dict = Depends(require_exam_access),
 ) -> Any:
     """Return the questions for a specific exam set so the student can take the exam.
 
@@ -220,6 +268,27 @@ def get_exam_set_questions(
             status_code=status.HTTP_404_NOT_FOUND,
             content={"error": "not_found", "message": "Exam is not available"},
         )
+
+    # ── Ownership check: enforce strict exam isolation ───────────────────────
+    # Institution student → can only access their institution's exams
+    # Personal student   → can only access platform-wide exams (institution_id IS NULL)
+    student_subtype = _student.get("student_subtype", "direct_subscriber")
+    student_institution_id = _student.get("institution_id")
+
+    if student_subtype == "institution_linked":
+        # Must belong to their institution
+        if str(exam.institution_id) != str(student_institution_id):
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "not_found", "message": "Exam is not available"},
+            )
+    else:
+        # Personal student: must be platform-wide (institution_id IS NULL)
+        if exam.institution_id is not None:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "not_found", "message": "Exam is not available"},
+            )
 
     # Load questions ordered by position
     stmt = (

@@ -35,6 +35,7 @@ if str(_BACKEND_DIR) not in sys.path:
 # Import after sys.path is fixed.
 from smartkcet.db.base import Base  # noqa: E402
 from smartkcet.db import models  # noqa: E402, F401  (registers all tables)
+from smartkcet.db import subscription_models  # noqa: E402, F401  (registers subscription tables)
 from smartkcet.db.session import DATABASE_URL  # noqa: E402
 
 # ---------------------------------------------------------------------------

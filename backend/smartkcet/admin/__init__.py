@@ -37,11 +37,14 @@ from fastapi import APIRouter, Depends
 
 from ..middleware.rbac import require_admin
 from .analytics import router as analytics_router
+from .dashboard import router as dashboard_router
 from .exams import router as exams_router
 from .generate import router as generate_router
 from .leaderboard import router as leaderboard_router
+from .platform_admin_routes import router as platform_admin_router
 from .questions import router as questions_router
 from .upload import router as upload_router
+from .syllabus import router as syllabus_router
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -63,6 +66,9 @@ router.include_router(questions_router)
 router.include_router(exams_router)
 router.include_router(leaderboard_router)
 router.include_router(analytics_router)
+router.include_router(dashboard_router)
+router.include_router(platform_admin_router)
+router.include_router(syllabus_router)
 
 
 __all__ = ["router"]

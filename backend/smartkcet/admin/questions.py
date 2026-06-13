@@ -116,19 +116,18 @@ def _serialise_question(row: Question) -> dict[str, Any]:
 
 
 def _counts_by_subject(session: Session) -> dict[str, int]:
-    """Return a ``{subject_value: count}`` map for the four KCET subjects.
+    """Return a ``{subject_value: count}`` map for platform-wide (admin) questions only.
 
-    Subjects with zero rows still appear in the map with ``count == 0``
-    so the frontend never has to defensively coalesce missing keys.
+    Only counts questions with ``institution_id IS NULL`` so institution-uploaded
+    questions never appear in the admin question bank.
     """
 
     rows = session.execute(
-        select(Question.subject, func.count(Question.id)).group_by(Question.subject)
+        select(Question.subject, func.count(Question.id))
+        .where(Question.institution_id.is_(None))
+        .group_by(Question.subject)
     ).all()
     found = {subject: int(count) for subject, count in rows}
-    # Pin every subject in the result, even when the table has no rows
-    # for it.  Iteration order matches the :class:`Subject` enum which
-    # in turn matches the canonical KCET ordering.
     return {s.value: int(found.get(s.value, 0)) for s in Subject}
 
 
@@ -228,11 +227,10 @@ def list_questions(
             )
         page_size = min(parsed, PAGE_SIZE)
 
-    # Build the base SELECT.  The ORDER BY pair (created_at DESC, id ASC)
-    # is required for stable pagination when several rows share a
-    # ``created_at`` value (notably during bulk inserts in the same
-    # transaction).
-    base_filter = []
+    # Build the base SELECT — platform-wide questions only (institution_id IS NULL).
+    # Institution-uploaded questions are scoped to their institution and must
+    # never appear in the admin question bank view.
+    base_filter = [Question.institution_id.is_(None)]
     if selected is not None:
         base_filter.append(Question.subject == selected.value)
 

@@ -1,35 +1,38 @@
 """HTML page routes with role-aware redirects and static file serving.
 
-This router serves all frontend HTML pages and implements the routing
-truth table from design.md:
+Routing truth table:
 
-| Path             | Auth state          | Response                    |
-|------------------|---------------------|-----------------------------|
-| ``/``            | unauthenticated     | serve landing.html          |
-| ``/``            | student             | 302 → /dashboard           |
-| ``/``            | admin               | 302 → /admin/upload        |
-| ``/index.html``  | (same as ``/``)     | (same as ``/``)            |
-| ``/login``       | any                 | serve login.html            |
-| ``/register``    | any                 | serve register.html         |
-| ``/dashboard``   | unauthenticated     | 302 → /login               |
-| ``/dashboard``   | admin               | 302 → /admin/upload        |
-| ``/dashboard``   | student             | serve dashboard.html        |
-| ``/exam``        | unauthenticated     | 302 → /login               |
-| ``/exam``        | student             | serve exam.html             |
-| ``/admin/upload``| unauthenticated     | 302 → /login               |
-| ``/admin/upload``| student             | 302 → /dashboard           |
-| ``/admin/upload``| admin               | serve admin-upload.html     |
-| ``/admin/*``     | (same pattern)      | (same pattern)              |
+| Path                               | Role                     | Response                                    |
+|------------------------------------|--------------------------|---------------------------------------------|
+| /                                  | unauthenticated          | serve landing.html                          |
+| /                                  | direct_subscriber        | 302 → /dashboard                            |
+| /                                  | institution_linked       | 302 → /student/institution/dashboard        |
+| /                                  | platform_admin           | 302 → /admin/dashboard                      |
+| /                                  | institution_admin        | 302 → /institution/dashboard                |
+| /login                             | any                      | serve login.html                            |
+| /register                          | any                      | serve register.html                         |
+| /dashboard                         | unauthenticated          | 302 → /login                                |
+| /dashboard                         | institution_linked       | 302 → /student/institution/dashboard        |
+| /dashboard                         | direct_subscriber        | serve dashboard.html                        |
+| /dashboard                         | platform_admin           | 302 → /admin/dashboard                      |
+| /exam                              | direct_subscriber        | serve exam.html                             |
+| /exam                              | institution_linked       | serve exam.html (institution exams only)    |
+| /subscription                      | direct_subscriber        | serve subscription.html                     |
+| /subscription                      | institution_linked       | 302 → /student/institution/dashboard        |
+| /pricing                           | direct_subscriber        | serve student-pricing.html                  |
+| /pricing                           | institution_linked       | 302 → /student/institution/dashboard        |
+| /student/institution/dashboard     | institution_linked       | serve student-institution-dashboard.html    |
+| /student/institution/dashboard     | direct_subscriber        | 302 → /dashboard                            |
+| /student/institution/*             | institution_linked       | serve respective page                       |
+| /invitation-accept                 | any                      | serve invitation-accept.html                |
+| /admin/*                           | platform_admin           | serve admin-*.html                          |
+| /institution/*                     | institution_admin        | serve institution-*.html                    |
 
-Static assets (``/css/*``, ``/js/*``) are served via FastAPI's
-``StaticFiles`` mount configured in ``main.py``.
-
-Requirements: 13.5, 13.6
+Static assets (/css/*, /js/*) are served via StaticFiles in main.py.
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request, status
@@ -41,195 +44,369 @@ from ..middleware.rbac import resolve_payload
 
 router = APIRouter(tags=["pages"])
 
-# Resolve the frontend/html directory relative to this file.
-# Structure: backend/smartkcet/routes/pages.py → ../../.. → project root → frontend/html
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 _HTML_DIR = _PROJECT_ROOT / "frontend" / "html"
+_REDIRECT = status.HTTP_302_FOUND
 
-# Standard redirect status for browser navigation (302 Found).
-_REDIRECT_STATUS = status.HTTP_302_FOUND
+
+def _is_platform_admin(role: str) -> bool:
+    """Accept both legacy 'admin' and new 'platform_admin' role strings."""
+    return role in ("admin", "platform_admin")
+
+
+def _is_institution_student(payload: dict) -> bool:
+    """Return True for institution-linked students."""
+    return (
+        payload.get("role") == "student"
+        and payload.get("student_subtype") == "institution_linked"
+    )
+
+
+def _is_personal_student(payload: dict) -> bool:
+    """Return True for direct_subscriber (personal) students."""
+    return (
+        payload.get("role") == "student"
+        and payload.get("student_subtype") != "institution_linked"
+    )
 
 
 # ---------------------------------------------------------------------------
-# Admin sub-page mapping
+# Root
 # ---------------------------------------------------------------------------
-
-_ADMIN_PAGES = {
-    "upload": "admin-upload.html",
-    "questions": "admin-questions.html",
-    "exams": "admin-exams.html",
-    "analytics": "admin-analytics.html",
-}
-
-
-# ---------------------------------------------------------------------------
-# Root path: / and /index.html
-# ---------------------------------------------------------------------------
-
 
 @router.get("/", response_model=None)
 @router.get("/index.html", response_model=None)
-def root_page(
-    request: Request,
-    session: Session = Depends(get_session),
-) -> FileResponse | RedirectResponse:
-    """Root path with role-aware redirects (REQ-13.5, REQ-13.6).
-
-    - Unauthenticated → serve landing.html
-    - Authenticated student → 302 to /dashboard
-    - Authenticated admin → 302 to /admin/upload
-    """
+def root_page(request: Request, session: Session = Depends(get_session)):
     payload = resolve_payload(request, session)
     if payload is None:
         return FileResponse(str(_HTML_DIR / "landing.html"), media_type="text/html")
-
-    role = payload.get("role")
+    if _is_institution_student(payload):
+        return RedirectResponse(url="/student/institution/dashboard", status_code=_REDIRECT)
+    role = payload.get("role", "")
     if role == "student":
-        return RedirectResponse(url="/dashboard", status_code=_REDIRECT_STATUS)
-    if role == "admin":
-        return RedirectResponse(url="/admin/upload", status_code=_REDIRECT_STATUS)
-
-    # Unknown role — treat as unauthenticated.
+        return RedirectResponse(url="/dashboard", status_code=_REDIRECT)
+    if _is_platform_admin(role):
+        return RedirectResponse(url="/admin/dashboard", status_code=_REDIRECT)
+    if role == "institution_admin":
+        return RedirectResponse(url="/institution/dashboard", status_code=_REDIRECT)
     return FileResponse(str(_HTML_DIR / "landing.html"), media_type="text/html")
 
 
 # ---------------------------------------------------------------------------
-# Public pages (no auth required)
+# Public pages
 # ---------------------------------------------------------------------------
 
-
 @router.get("/login", response_model=None)
-def login_page() -> FileResponse:
-    """Serve the login page."""
+def login_page():
     return FileResponse(str(_HTML_DIR / "login.html"), media_type="text/html")
 
 
 @router.get("/register", response_model=None)
-def register_page() -> FileResponse:
-    """Serve the registration page."""
+def register_page():
     return FileResponse(str(_HTML_DIR / "register.html"), media_type="text/html")
 
 
-# ---------------------------------------------------------------------------
-# Student pages (auth required)
-# ---------------------------------------------------------------------------
+@router.get("/not-found", response_model=None)
+def not_found_page():
+    return FileResponse(str(_HTML_DIR / "not-found.html"), media_type="text/html")
 
+
+@router.get("/invitation-accept", response_model=None)
+def invitation_accept_page():
+    """Public — auth is checked client-side by invitation.js."""
+    return FileResponse(str(_HTML_DIR / "invitation-accept.html"), media_type="text/html")
+
+
+# ---------------------------------------------------------------------------
+# Personal Student pages (direct_subscriber only)
+# ---------------------------------------------------------------------------
 
 @router.get("/dashboard", response_model=None)
-def dashboard_page(
-    request: Request,
-    session: Session = Depends(get_session),
-) -> FileResponse | RedirectResponse:
-    """Student dashboard with role-aware redirects."""
+def dashboard_page(request: Request, session: Session = Depends(get_session)):
     payload = resolve_payload(request, session)
     if payload is None:
-        return RedirectResponse(url="/login", status_code=_REDIRECT_STATUS)
-
-    role = payload.get("role")
-    if role == "admin":
-        return RedirectResponse(url="/admin/upload", status_code=_REDIRECT_STATUS)
+        return RedirectResponse(url="/login", status_code=_REDIRECT)
+    # Institution students → their own dashboard
+    if _is_institution_student(payload):
+        return RedirectResponse(url="/student/institution/dashboard", status_code=_REDIRECT)
+    role = payload.get("role", "")
+    if _is_platform_admin(role):
+        return RedirectResponse(url="/admin/dashboard", status_code=_REDIRECT)
+    if role == "institution_admin":
+        return RedirectResponse(url="/institution/dashboard", status_code=_REDIRECT)
     if role == "student":
         return FileResponse(str(_HTML_DIR / "dashboard.html"), media_type="text/html")
-
-    # Unknown role — redirect to login.
-    return RedirectResponse(url="/login", status_code=_REDIRECT_STATUS)
+    return RedirectResponse(url="/login", status_code=_REDIRECT)
 
 
 @router.get("/exam", response_model=None)
-def exam_page(
-    request: Request,
-    session: Session = Depends(get_session),
-) -> FileResponse | RedirectResponse:
-    """Exam page — student only."""
+def exam_page(request: Request, session: Session = Depends(get_session)):
     payload = resolve_payload(request, session)
     if payload is None:
-        return RedirectResponse(url="/login", status_code=_REDIRECT_STATUS)
-
-    role = payload.get("role")
-    if role == "student":
+        return RedirectResponse(url="/login", status_code=_REDIRECT)
+    role = payload.get("role", "")
+    # Institution students: if they have a specific exam_set_id query param they're
+    # starting an actual exam — allow exam.html. Otherwise redirect to their exams listing.
+    if _is_institution_student(payload):
+        exam_set_id = request.query_params.get("set")
+        if exam_set_id:
+            # Coming from institution exams page with a specific set — allow through
+            return FileResponse(str(_HTML_DIR / "exam.html"), media_type="text/html")
+        return RedirectResponse(url="/student/institution/exams", status_code=_REDIRECT)
+    if role in ("student", "institution_admin") or _is_platform_admin(role):
         return FileResponse(str(_HTML_DIR / "exam.html"), media_type="text/html")
-    if role == "admin":
-        return RedirectResponse(url="/admin/upload", status_code=_REDIRECT_STATUS)
-
-    return RedirectResponse(url="/login", status_code=_REDIRECT_STATUS)
+    return RedirectResponse(url="/login", status_code=_REDIRECT)
 
 
-# ---------------------------------------------------------------------------
-# Admin pages (admin auth required)
-# ---------------------------------------------------------------------------
-
-
-def _admin_page_response(
-    request: Request, session: Session, html_file: str
-) -> FileResponse | RedirectResponse:
-    """Shared handler for admin sub-pages."""
+@router.get("/subscription", response_model=None)
+def subscription_page(request: Request, session: Session = Depends(get_session)):
     payload = resolve_payload(request, session)
     if payload is None:
-        return RedirectResponse(url="/login", status_code=_REDIRECT_STATUS)
-
-    role = payload.get("role")
+        return RedirectResponse(url="/login", status_code=_REDIRECT)
+    role = payload.get("role", "")
     if role == "student":
-        return RedirectResponse(url="/dashboard", status_code=_REDIRECT_STATUS)
-    if role == "admin":
+        # Institution-linked students have no personal subscription UI
+        if _is_institution_student(payload):
+            return RedirectResponse(url="/student/institution/dashboard", status_code=_REDIRECT)
+        return FileResponse(str(_HTML_DIR / "subscription.html"), media_type="text/html")
+    if _is_platform_admin(role):
+        return RedirectResponse(url="/admin/upload", status_code=_REDIRECT)
+    if role == "institution_admin":
+        return RedirectResponse(url="/institution/subscription", status_code=_REDIRECT)
+    return RedirectResponse(url="/login", status_code=_REDIRECT)
+
+
+@router.get("/pricing", response_model=None)
+def student_pricing_page(request: Request, session: Session = Depends(get_session)):
+    """Student-facing subscription pricing page."""
+    payload = resolve_payload(request, session)
+    if payload is None:
+        return RedirectResponse(url="/login", status_code=_REDIRECT)
+    role = payload.get("role", "")
+    if role == "student":
+        # Institution-linked students cannot access personal pricing page
+        if _is_institution_student(payload):
+            return RedirectResponse(url="/student/institution/dashboard", status_code=_REDIRECT)
+        return FileResponse(str(_HTML_DIR / "student-pricing.html"), media_type="text/html")
+    if role == "institution_admin":
+        return RedirectResponse(url="/institution/pricing", status_code=_REDIRECT)
+    if _is_platform_admin(role):
+        return RedirectResponse(url="/admin/subscriptions", status_code=_REDIRECT)
+    return RedirectResponse(url="/login", status_code=_REDIRECT)
+
+
+# ---------------------------------------------------------------------------
+# Institution Student Platform  (/student/institution/*)
+# ---------------------------------------------------------------------------
+
+def _institution_student_page(request: Request, session: Session, html_file: str):
+    """Guard: only institution_linked students can view these pages."""
+    payload = resolve_payload(request, session)
+    if payload is None:
+        return RedirectResponse(url="/login", status_code=_REDIRECT)
+    if _is_institution_student(payload):
         return FileResponse(str(_HTML_DIR / html_file), media_type="text/html")
-
-    return RedirectResponse(url="/login", status_code=_REDIRECT_STATUS)
-
-
-@router.get("/admin/upload", response_model=None)
-def admin_upload_page(
-    request: Request,
-    session: Session = Depends(get_session),
-) -> FileResponse | RedirectResponse:
-    """Admin upload/generator page (historical index.html generator UI)."""
-    return _admin_page_response(request, session, "admin-upload.html")
+    # Personal students → personal dashboard
+    if payload.get("role") == "student":
+        return RedirectResponse(url="/dashboard", status_code=_REDIRECT)
+    if _is_platform_admin(payload.get("role", "")):
+        return RedirectResponse(url="/admin/dashboard", status_code=_REDIRECT)
+    if payload.get("role") == "institution_admin":
+        return RedirectResponse(url="/institution/dashboard", status_code=_REDIRECT)
+    return RedirectResponse(url="/login", status_code=_REDIRECT)
 
 
-@router.get("/admin/questions", response_model=None)
-def admin_questions_page(
-    request: Request,
-    session: Session = Depends(get_session),
-) -> FileResponse | RedirectResponse:
-    """Admin question bank management page."""
-    return _admin_page_response(request, session, "admin-questions.html")
+@router.get("/student/institution/dashboard", response_model=None)
+def student_institution_dashboard_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_student_page(request, session, "student-institution-dashboard.html")
 
 
-@router.get("/admin/exams", response_model=None)
-def admin_exams_page(
-    request: Request,
-    session: Session = Depends(get_session),
-) -> FileResponse | RedirectResponse:
-    """Admin exam creation and publish page."""
-    return _admin_page_response(request, session, "admin-exams.html")
+@router.get("/student/institution/exams", response_model=None)
+def student_institution_exams_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_student_page(request, session, "student-institution-exams.html")
 
 
-@router.get("/admin/analytics", response_model=None)
-def admin_analytics_page(
-    request: Request,
-    session: Session = Depends(get_session),
-) -> FileResponse | RedirectResponse:
-    """Admin analytics page."""
-    return _admin_page_response(request, session, "admin-analytics.html")
+@router.get("/student/institution/performance", response_model=None)
+def student_institution_performance_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_student_page(request, session, "student-institution-performance.html")
+
+
+@router.get("/student/institution/leaderboard", response_model=None)
+def student_institution_leaderboard_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_student_page(request, session, "student-institution-leaderboard.html")
+
+
+# ---------------------------------------------------------------------------
+# Platform admin pages
+# ---------------------------------------------------------------------------
+
+def _admin_page(request: Request, session: Session, html_file: str):
+    payload = resolve_payload(request, session)
+    if payload is None:
+        return RedirectResponse(url="/login", status_code=_REDIRECT)
+    role = payload.get("role", "")
+    if _is_platform_admin(role):
+        return FileResponse(str(_HTML_DIR / html_file), media_type="text/html")
+    if _is_institution_student(payload):
+        return RedirectResponse(url="/student/institution/dashboard", status_code=_REDIRECT)
+    if role == "student":
+        return RedirectResponse(url="/dashboard", status_code=_REDIRECT)
+    if role == "institution_admin":
+        return RedirectResponse(url="/institution/dashboard", status_code=_REDIRECT)
+    return RedirectResponse(url="/login", status_code=_REDIRECT)
 
 
 @router.get("/admin", response_model=None)
-def admin_root_page(
-    request: Request,
-    session: Session = Depends(get_session),
-) -> FileResponse | RedirectResponse:
-    """Admin panel root — redirects to /admin/upload for admin users."""
+def admin_root(request: Request, session: Session = Depends(get_session)):
     payload = resolve_payload(request, session)
     if payload is None:
-        return RedirectResponse(url="/login", status_code=_REDIRECT_STATUS)
-
-    role = payload.get("role")
+        return RedirectResponse(url="/login", status_code=_REDIRECT)
+    role = payload.get("role", "")
+    if _is_platform_admin(role):
+        return RedirectResponse(url="/admin/dashboard", status_code=_REDIRECT)
+    if _is_institution_student(payload):
+        return RedirectResponse(url="/student/institution/dashboard", status_code=_REDIRECT)
     if role == "student":
-        return RedirectResponse(url="/dashboard", status_code=_REDIRECT_STATUS)
-    if role == "admin":
-        # Admin root redirects to the upload page (the primary admin landing).
-        return RedirectResponse(url="/admin/upload", status_code=_REDIRECT_STATUS)
+        return RedirectResponse(url="/dashboard", status_code=_REDIRECT)
+    return RedirectResponse(url="/login", status_code=_REDIRECT)
 
-    return RedirectResponse(url="/login", status_code=_REDIRECT_STATUS)
+
+@router.get("/admin/upload", response_model=None)
+def admin_upload_page(request: Request, session: Session = Depends(get_session)):
+    return _admin_page(request, session, "admin-upload.html")
+
+
+@router.get("/admin/dashboard", response_model=None)
+def admin_dashboard_page(request: Request, session: Session = Depends(get_session)):
+    return _admin_page(request, session, "admin-dashboard.html")
+
+
+@router.get("/admin/institutions", response_model=None)
+def admin_institutions_page(request: Request, session: Session = Depends(get_session)):
+    return _admin_page(request, session, "admin-institutions.html")
+
+
+@router.get("/admin/subscriptions", response_model=None)
+def admin_subscriptions_page(request: Request, session: Session = Depends(get_session)):
+    return _admin_page(request, session, "admin-subscriptions.html")
+
+
+@router.get("/admin/questions", response_model=None)
+def admin_questions_page(request: Request, session: Session = Depends(get_session)):
+    return _admin_page(request, session, "admin-questions.html")
+
+
+@router.get("/admin/exams", response_model=None)
+def admin_exams_page(request: Request, session: Session = Depends(get_session)):
+    return _admin_page(request, session, "admin-exams.html")
+
+
+@router.get("/admin/analytics", response_model=None)
+def admin_analytics_page(request: Request, session: Session = Depends(get_session)):
+    return _admin_page(request, session, "admin-analytics.html")
+
+
+# ---------------------------------------------------------------------------
+# Institution admin pages
+# ---------------------------------------------------------------------------
+
+def _institution_page(request: Request, session: Session, html_file: str):
+    payload = resolve_payload(request, session)
+    if payload is None:
+        return RedirectResponse(url="/login", status_code=_REDIRECT)
+    role = payload.get("role", "")
+    if role == "institution_admin":
+        return FileResponse(str(_HTML_DIR / html_file), media_type="text/html")
+    if _is_institution_student(payload):
+        return RedirectResponse(url="/student/institution/dashboard", status_code=_REDIRECT)
+    if role == "student":
+        return RedirectResponse(url="/dashboard", status_code=_REDIRECT)
+    if _is_platform_admin(role):
+        return RedirectResponse(url="/admin/upload", status_code=_REDIRECT)
+    return RedirectResponse(url="/login", status_code=_REDIRECT)
+
+
+@router.get("/institution", response_model=None)
+def institution_root(request: Request, session: Session = Depends(get_session)):
+    payload = resolve_payload(request, session)
+    if payload is None:
+        return RedirectResponse(url="/login", status_code=_REDIRECT)
+    role = payload.get("role", "")
+    if role == "institution_admin":
+        return RedirectResponse(url="/institution/dashboard", status_code=_REDIRECT)
+    if _is_institution_student(payload):
+        return RedirectResponse(url="/student/institution/dashboard", status_code=_REDIRECT)
+    if role == "student":
+        return RedirectResponse(url="/dashboard", status_code=_REDIRECT)
+    if _is_platform_admin(role):
+        return RedirectResponse(url="/admin/upload", status_code=_REDIRECT)
+    return RedirectResponse(url="/login", status_code=_REDIRECT)
+
+
+@router.get("/institution/dashboard", response_model=None)
+def institution_dashboard_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_page(request, session, "institution-dashboard.html")
+
+
+@router.get("/institution/students", response_model=None)
+def institution_students_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_page(request, session, "institution-students.html")
+
+
+@router.get("/institution/subscription", response_model=None)
+def institution_subscription_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_page(request, session, "institution-subscription.html")
+
+
+@router.get("/institution/pricing", response_model=None)
+def institution_pricing_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_page(request, session, "institution-pricing.html")
+
+
+@router.get("/institution/upload", response_model=None)
+def institution_upload_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_page(request, session, "institution-upload.html")
+
+
+@router.get("/institution/exams", response_model=None)
+def institution_exams_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_page(request, session, "institution-exams.html")
+
+
+@router.get("/institution/questions", response_model=None)
+def institution_questions_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_page(request, session, "institution-questions.html")
+
+
+@router.get("/institution/analytics", response_model=None)
+def institution_analytics_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_page(request, session, "institution-analytics.html")
+
+
+# ---------------------------------------------------------------------------
+# Syllabus pages (public/role-aware)
+# ---------------------------------------------------------------------------
+
+@router.get("/syllabus", response_model=None)
+def syllabus_page(request: Request, session: Session = Depends(get_session)):
+    """Student-facing syllabus viewer. Unauthenticated → landing; admin → admin syllabus."""
+    payload = resolve_payload(request, session)
+    if payload is None:
+        return FileResponse(str(_HTML_DIR / "syllabus.html"), media_type="text/html")
+    role = payload.get("role", "")
+    if _is_platform_admin(role):
+        return RedirectResponse(url="/admin/syllabus", status_code=_REDIRECT)
+    return FileResponse(str(_HTML_DIR / "syllabus.html"), media_type="text/html")
+
+
+@router.get("/admin/syllabus", response_model=None)
+def admin_syllabus_page(request: Request, session: Session = Depends(get_session)):
+    return _admin_page(request, session, "admin-syllabus.html")
+
+
+@router.get("/institution/syllabus", response_model=None)
+def institution_syllabus_page(request: Request, session: Session = Depends(get_session)):
+    return _institution_page(request, session, "institution-syllabus.html")
 
 
 __all__ = ["router"]

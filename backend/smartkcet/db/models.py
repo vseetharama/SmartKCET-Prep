@@ -15,7 +15,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import (
     JSON,
@@ -34,6 +34,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
+
+if TYPE_CHECKING:
+    from .subscription_models import Subscription, UsageRecord
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +85,14 @@ class User(Base):
     __table_args__ = (
         UniqueConstraint("email", name="uq_users_email"),
         UniqueConstraint("kcet_student_id", name="uq_users_kcet_student_id"),
-        CheckConstraint("role IN ('student', 'admin')", name="ck_users_role"),
+        CheckConstraint(
+            "role IN ('platform_admin', 'institution_admin', 'student')",
+            name="ck_users_role",
+        ),
+        CheckConstraint(
+            "student_subtype IN ('direct_subscriber', 'institution_linked', 'dual') OR student_subtype IS NULL",
+            name="ck_users_student_subtype",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -91,7 +101,12 @@ class User(Base):
     kcet_student_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     display_name: Mapped[str] = mapped_column(String(50), nullable=False)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
-    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    # New columns for subscription platform upgrade
+    student_subtype: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    institution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("institutions.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
@@ -107,6 +122,14 @@ class User(Base):
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan",
+    )
+    subscriptions: Mapped[list["Subscription"]] = relationship(
+        back_populates="user",
+        foreign_keys="Subscription.user_id",
+    )
+    usage_records: Mapped[list["UsageRecord"]] = relationship(
+        back_populates="user",
+        foreign_keys="UsageRecord.user_id",
     )
 
 
@@ -132,6 +155,22 @@ class Question(Base):
     correct_option: Mapped[str] = mapped_column(String(8), nullable=False)
     topic: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     generation_batch_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    # Institution scoping: NULL for platform-wide questions, non-NULL for institution-specific
+    institution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # KCET syllabus mapping: which chapter does this question belong to?
+    # NULL = not yet classified. Non-NULL = mapped to official syllabus topic.
+    syllabus_topic_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("syllabus_topics.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # Confidence of auto-classification: 'high' | 'low' | 'manual' | NULL
+    topic_confidence: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
@@ -157,6 +196,10 @@ class Exam(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     subject: Mapped[str] = mapped_column(String(32), nullable=False)
     exam_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    # Institution scoping: NULL for platform-wide exams, non-NULL for institution-specific
+    institution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
@@ -274,6 +317,9 @@ class Submission(Base):
 
     user: Mapped["User"] = relationship(back_populates="submissions")
     exam_set: Mapped["ExamSet"] = relationship(back_populates="submissions")
+    usage_records: Mapped[list["UsageRecord"]] = relationship(
+        back_populates="submission",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -341,11 +387,23 @@ class RevokedToken(Base):
 
 
 class IndexedFile(Base):
-    """Tracks files that have been uploaded and indexed into the RAG store."""
+    """Tracks files that have been uploaded and indexed into the RAG store.
+
+    ``institution_id = NULL``  → uploaded by platform admin (global).
+    ``institution_id = <uuid>`` → uploaded by that institution (scoped).
+    The unique constraint is on (subject, file_hash, institution_id) so the
+    same PDF can be independently uploaded by both the admin and institutions.
+    """
 
     __tablename__ = "indexed_files"
     __table_args__ = (
-        UniqueConstraint("subject", "file_hash", name="uq_subject_file_hash"),
+        # New scoped uniqueness: (subject, file_hash, institution_id).
+        # SQLite/PostgreSQL both treat NULLs as distinct in unique indexes,
+        # so admin rows (institution_id IS NULL) and institution rows coexist.
+        UniqueConstraint(
+            "subject", "file_hash", "institution_id",
+            name="uq_indexed_files_subject_hash_institution",
+        ),
         CheckConstraint(_SUBJECT_CHECK_SQL, name="ck_indexed_files_subject"),
     )
 
@@ -355,6 +413,13 @@ class IndexedFile(Base):
     file_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # SHA-256 hex
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # NULL → admin/global file.  Non-NULL → institution-scoped file.
+    institution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("institutions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     indexed_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
@@ -371,4 +436,53 @@ __all__ = [
     "LeaderboardScore",
     "RevokedToken",
     "IndexedFile",
+    "SyllabusTopic",
 ]
+
+
+# ---------------------------------------------------------------------------
+# SYLLABUS_TOPICS (KCET official syllabus — KEA / Karnataka DPUE)
+# ---------------------------------------------------------------------------
+
+
+class SyllabusTopic(Base):
+    """One chapter from the official KCET / Karnataka PUC syllabus.
+
+    Source: Karnataka Examinations Authority (KEA) & DPUE, aligned with
+    NCERT Class 11 / Class 12 textbooks as prescribed for KCET 2026.
+    """
+
+    __tablename__ = "syllabus_topics"
+    __table_args__ = (
+        UniqueConstraint(
+            "subject", "puc_year", "chapter_number",
+            name="uq_syllabus_topic_chapter",
+        ),
+        CheckConstraint(
+            "subject IN ('Physics','Chemistry','Mathematics','Biology')",
+            name="ck_syllabus_topics_subject",
+        ),
+        CheckConstraint(
+            "puc_year IN ('1st PUC','2nd PUC')",
+            name="ck_syllabus_topics_puc_year",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    subject: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    puc_year: Mapped[str] = mapped_column(String(10), nullable=False)
+    chapter_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    chapter_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    display_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )

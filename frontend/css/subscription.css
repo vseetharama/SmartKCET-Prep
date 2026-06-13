@@ -1,0 +1,618 @@
+/* ╔══════════════════════════════════════════════════════════════════════╗
+   ║  Subscription UI Styles                                              ║
+   ║  Covers: Subscription Banner (Task 2.1)                              ║
+   ║  Requirements: 4.2 (positioning), 4.10 (color coding),               ║
+   ║                13.1 (responsive 320–1920px),                         ║
+   ║                13.3 (mobile condensed banner)                        ║
+   ║                                                                      ║
+   ║  Builds on the dark theme variables defined in style.css.            ║
+   ╚══════════════════════════════════════════════════════════════════════╝ */
+
+/* ── Status palette ─────────────────────────────────────────────────────────
+   Re-uses the base palette in style.css and exposes semantic aliases that
+   the subscription banner (and later modal) can target without coupling to
+   hard-coded color literals. */
+:root {
+  /* Active / Trial — green */
+  --sub-active-bg: rgba(5, 150, 105, 0.10);
+  --sub-active-border: rgba(52, 211, 153, 0.40);
+  --sub-active-text: var(--green-l);
+  --sub-active-glow: 0 0 16px rgba(52, 211, 153, 0.10);
+
+  /* Overdue / Grace period — yellow / orange */
+  --sub-warn-bg: rgba(217, 119, 6, 0.10);
+  --sub-warn-border: rgba(251, 191, 36, 0.40);
+  --sub-warn-text: var(--yellow-l);
+  --sub-warn-glow: 0 0 16px rgba(251, 191, 36, 0.12);
+
+  /* Expired / Cancelled — red */
+  --sub-error-bg: rgba(220, 38, 38, 0.10);
+  --sub-error-border: rgba(248, 113, 113, 0.40);
+  --sub-error-text: var(--red-l);
+  --sub-error-glow: 0 0 16px rgba(248, 113, 113, 0.14);
+
+  /* Institution-linked — cyan accent (subset of "active") */
+  --sub-institution-bg: rgba(8, 145, 178, 0.10);
+  --sub-institution-border: rgba(34, 211, 238, 0.40);
+  --sub-institution-text: var(--cyan-l);
+}
+
+/* ── Subscription Banner ───────────────────────────────────────────────────
+   Persistent component shown below the main navbar on every authenticated
+   student page (REQ-4.2). The navbar height is 60px (see .navbar in
+   style.css), so the banner sits flush against it via top: 60px. */
+.subscription-banner {
+  position: sticky;
+  top: 60px;
+  z-index: 90; /* below navbar (z=100), above page content */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 24px;
+  background: var(--s2);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: background 0.25s ease, border-color 0.25s ease,
+              padding 0.25s ease, max-height 0.3s ease, opacity 0.25s ease;
+  overflow: hidden;
+  max-height: 80px;
+}
+
+/* Hidden / not yet hydrated */
+.subscription-banner[hidden] { display: none !important; }
+
+/* Collapsed state — keeps element in flow for smooth toggle (REQ-4.11) */
+.subscription-banner.collapsed {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Banner inner content */
+.banner-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0; /* allows flex children to ellipsis */
+}
+
+.banner-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+}
+.banner-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.banner-text {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.banner-status {
+  font-weight: 700;
+  font-size: 0.88rem;
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+}
+
+.banner-details {
+  color: var(--muted2);
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Action area */
+.banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.banner-actions .btn-banner-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: linear-gradient(135deg, var(--purple), var(--blue));
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 2px 10px rgba(124, 58, 237, 0.30);
+}
+.banner-actions .btn-banner-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.45);
+}
+.banner-actions .btn-banner-action:focus-visible {
+  outline: 2px solid var(--purple-l);
+  outline-offset: 2px;
+}
+
+.banner-actions .btn-collapse {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.banner-actions .btn-collapse:hover {
+  color: var(--text);
+  border-color: var(--border2);
+  background: var(--s3);
+}
+.banner-actions .btn-collapse:focus-visible {
+  outline: 2px solid var(--purple-l);
+  outline-offset: 2px;
+}
+
+/* ── Status color coding (REQ-4.10) ────────────────────────────────────────
+   Green for active (trial/active/institution-linked active),
+   yellow/orange for overdue or grace period,
+   red for expired or cancelled. */
+
+/* Active / Trial — green */
+.subscription-banner[data-status="trial"],
+.subscription-banner[data-status="active"] {
+  background: var(--sub-active-bg);
+  border-bottom-color: var(--sub-active-border);
+  box-shadow: var(--sub-active-glow);
+}
+.subscription-banner[data-status="trial"] .banner-status,
+.subscription-banner[data-status="active"] .banner-status,
+.subscription-banner[data-status="trial"] .banner-icon,
+.subscription-banner[data-status="active"] .banner-icon {
+  color: var(--sub-active-text);
+}
+.subscription-banner[data-status="trial"] .banner-icon,
+.subscription-banner[data-status="active"] .banner-icon {
+  background: rgba(5, 150, 105, 0.18);
+}
+
+/* Institution-linked — cyan accent (still "active") */
+.subscription-banner[data-status="institution"] {
+  background: var(--sub-institution-bg);
+  border-bottom-color: var(--sub-institution-border);
+}
+.subscription-banner[data-status="institution"] .banner-status,
+.subscription-banner[data-status="institution"] .banner-icon {
+  color: var(--sub-institution-text);
+}
+.subscription-banner[data-status="institution"] .banner-icon {
+  background: rgba(8, 145, 178, 0.18);
+}
+
+/* Overdue / Grace period — yellow / orange */
+.subscription-banner[data-status="overdue"],
+.subscription-banner[data-status="grace_period"],
+.subscription-banner[data-status="expiring_soon"] {
+  background: var(--sub-warn-bg);
+  border-bottom-color: var(--sub-warn-border);
+  box-shadow: var(--sub-warn-glow);
+}
+.subscription-banner[data-status="overdue"] .banner-status,
+.subscription-banner[data-status="grace_period"] .banner-status,
+.subscription-banner[data-status="expiring_soon"] .banner-status,
+.subscription-banner[data-status="overdue"] .banner-icon,
+.subscription-banner[data-status="grace_period"] .banner-icon,
+.subscription-banner[data-status="expiring_soon"] .banner-icon {
+  color: var(--sub-warn-text);
+}
+.subscription-banner[data-status="overdue"] .banner-icon,
+.subscription-banner[data-status="grace_period"] .banner-icon,
+.subscription-banner[data-status="expiring_soon"] .banner-icon {
+  background: rgba(217, 119, 6, 0.20);
+}
+/* Use a warmer "Pay Now" CTA for warnings */
+.subscription-banner[data-status="overdue"] .btn-banner-action,
+.subscription-banner[data-status="grace_period"] .btn-banner-action {
+  background: linear-gradient(135deg, var(--orange), var(--yellow));
+  box-shadow: 0 2px 10px rgba(234, 88, 12, 0.30);
+}
+.subscription-banner[data-status="overdue"] .btn-banner-action:hover,
+.subscription-banner[data-status="grace_period"] .btn-banner-action:hover {
+  box-shadow: 0 4px 14px rgba(234, 88, 12, 0.45);
+}
+
+/* Expired / Cancelled — red */
+.subscription-banner[data-status="expired"],
+.subscription-banner[data-status="cancelled"] {
+  background: var(--sub-error-bg);
+  border-bottom-color: var(--sub-error-border);
+  box-shadow: var(--sub-error-glow);
+}
+.subscription-banner[data-status="expired"] .banner-status,
+.subscription-banner[data-status="cancelled"] .banner-status,
+.subscription-banner[data-status="expired"] .banner-icon,
+.subscription-banner[data-status="cancelled"] .banner-icon {
+  color: var(--sub-error-text);
+}
+.subscription-banner[data-status="expired"] .banner-icon,
+.subscription-banner[data-status="cancelled"] .banner-icon {
+  background: rgba(220, 38, 38, 0.20);
+}
+.subscription-banner[data-status="expired"] .btn-banner-action,
+.subscription-banner[data-status="cancelled"] .btn-banner-action {
+  background: linear-gradient(135deg, var(--red), var(--orange));
+  box-shadow: 0 2px 10px rgba(220, 38, 38, 0.35);
+}
+.subscription-banner[data-status="expired"] .btn-banner-action:hover,
+.subscription-banner[data-status="cancelled"] .btn-banner-action:hover {
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.50);
+}
+
+/* ── Status icon glyphs (non-color indicators, WCAG 2.1 AA, REQ-13.9) ────── */
+.subscription-banner[data-status="trial"] .banner-icon::before,
+.subscription-banner[data-status="active"] .banner-icon::before,
+.subscription-banner[data-status="institution"] .banner-icon::before {
+  content: "✓";
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+.subscription-banner[data-status="overdue"] .banner-icon::before,
+.subscription-banner[data-status="grace_period"] .banner-icon::before,
+.subscription-banner[data-status="expiring_soon"] .banner-icon::before {
+  content: "!";
+  font-weight: 800;
+  font-size: 1rem;
+}
+.subscription-banner[data-status="expired"] .banner-icon::before,
+.subscription-banner[data-status="cancelled"] .banner-icon::before {
+  content: "✕";
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+/* If a real <svg> is provided inside .banner-icon it overrides the
+   pseudo-glyph — hide the ::before so we don't double up. */
+.banner-icon:has(svg)::before { content: none; }
+
+/* ── Mobile-only "Details" toggle (REQ-13.3) ─────────────────────────────── */
+.banner-details-toggle {
+  display: none; /* hidden on tablet/desktop */
+  background: transparent;
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 5px 10px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.banner-details-toggle:hover {
+  border-color: rgba(124, 58, 237, 0.4);
+  background: rgba(124, 58, 237, 0.06);
+}
+.banner-details-toggle:focus-visible {
+  outline: 2px solid var(--purple-l);
+  outline-offset: 2px;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   RESPONSIVE BREAKPOINTS (REQ-13.1)
+   - Mobile:   < 768px   → condensed banner, stacked actions
+   - Tablet:   768–1023px → standard layout, slightly tighter spacing
+   - Desktop:  ≥ 1024px  → full layout with comfortable padding
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Mobile: < 768px (REQ-13.3) ──────────────────────────────────────────
+   Show a condensed banner with just status + remaining attempts and a
+   "Details" button to expand. Hide the verbose .banner-details span by
+   default; the JS layer toggles .expanded to reveal full info. */
+@media (max-width: 767px) {
+  .subscription-banner {
+    padding: 8px 14px;
+    gap: 8px;
+    font-size: 0.8rem;
+    max-height: 120px; /* allow expansion on small screens */
+  }
+
+  .banner-content {
+    flex: 1;
+    gap: 8px;
+  }
+
+  .banner-icon {
+    width: 24px;
+    height: 24px;
+    padding: 5px;
+  }
+
+  .banner-text {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .banner-status {
+    font-size: 0.82rem;
+  }
+
+  .banner-details {
+    font-size: 0.74rem;
+    max-width: 100%;
+    /* condensed: hide secondary details until expanded */
+    display: none;
+  }
+
+  .subscription-banner.expanded .banner-details {
+    display: block;
+    white-space: normal;
+  }
+
+  .banner-actions {
+    gap: 6px;
+  }
+
+  .banner-actions .btn-banner-action {
+    padding: 5px 10px;
+    font-size: 0.74rem;
+  }
+
+  .banner-actions .btn-collapse {
+    width: 24px;
+    height: 24px;
+    font-size: 0.9rem;
+  }
+
+  .banner-details-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+/* Extra-small phones: 320–399px — keep banner usable */
+@media (max-width: 399px) {
+  .subscription-banner {
+    padding: 6px 10px;
+  }
+
+  .banner-status {
+    font-size: 0.78rem;
+  }
+
+  .banner-actions .btn-banner-action {
+    padding: 5px 8px;
+    font-size: 0.72rem;
+  }
+}
+
+/* ── Tablet: 768–1023px ──────────────────────────────────────────────────── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .subscription-banner {
+    padding: 10px 20px;
+    font-size: 0.84rem;
+  }
+
+  .banner-text {
+    gap: 8px;
+  }
+
+  .banner-details {
+    font-size: 0.8rem;
+  }
+
+  /* Hide the mobile details toggle */
+  .banner-details-toggle {
+    display: none;
+  }
+}
+
+/* ── Desktop: ≥ 1024px ───────────────────────────────────────────────────── */
+@media (min-width: 1024px) {
+  .subscription-banner {
+    padding: 12px 32px;
+    font-size: 0.88rem;
+  }
+
+  .banner-text {
+    gap: 12px;
+  }
+
+  .banner-status {
+    font-size: 0.92rem;
+  }
+
+  .banner-details {
+    font-size: 0.85rem;
+  }
+
+  .banner-actions .btn-banner-action {
+    padding: 7px 16px;
+    font-size: 0.84rem;
+  }
+
+  /* Hide the mobile details toggle */
+  .banner-details-toggle {
+    display: none;
+  }
+}
+
+/* ── Reduced motion preference ─────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .subscription-banner,
+  .subscription-banner.collapsed,
+  .banner-actions .btn-banner-action,
+  .banner-actions .btn-collapse {
+    transition: none;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   TASK 17.1 — RESPONSIVE GRID LAYOUTS & TABLE WRAPPER
+   ────────────────────────────────────────────────────────────────────────
+   Adds responsive layout primitives used by:
+     - Subscription Selection Modal (.plan-cards-grid → plan cards)
+     - Subscription Management Page billing history (.responsive-table-wrapper)
+     - Other future tables on student-side pages
+
+   Breakpoints (REQ-13.1):
+     - Mobile:   < 768px
+     - Tablet:   768px – 1023px
+     - Desktop:  ≥ 1024px
+
+   Existing banner-specific media queries above are intentionally untouched.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Plan Cards Grid (Subscription Selection Modal, REQ-13.2) ──────────────
+   Wraps the Free Trial and Pro plan cards in a CSS grid that:
+     • stacks vertically on mobile (< 768px),
+     • renders side-by-side at tablet width with tighter gap,
+     • uses comfortable spacing on desktop.
+   Pairs with the existing `.plan-cards` flex container in the modal — either
+   class can be used; `.plan-cards-grid` is the preferred canonical class.
+   ───────────────────────────────────────────────────────────────────────── */
+.plan-cards-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;        /* mobile default — single column */
+  width: 100%;
+  align-items: stretch;
+}
+
+.plan-cards-grid > .plan-card {
+  width: 100%;
+  min-width: 0;                       /* prevent grid blow-out */
+}
+
+/* ── Responsive Table Wrapper ─────────────────────────────────────────────
+   Generic horizontal-scroll wrapper for any wide table that cannot fit on
+   small viewports (e.g. billing history). Wrap the <table> in
+   <div class="responsive-table-wrapper">…</div> and the table will scroll
+   horizontally on mobile while remaining a normal table on desktop.
+   ───────────────────────────────────────────────────────────────────────── */
+.responsive-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+  border-radius: var(--rs, 10px);
+}
+
+.responsive-table-wrapper::-webkit-scrollbar {
+  height: 8px;
+}
+.responsive-table-wrapper::-webkit-scrollbar-track {
+  background: transparent;
+}
+.responsive-table-wrapper::-webkit-scrollbar-thumb {
+  background: var(--border2);
+  border-radius: 4px;
+}
+
+.responsive-table-wrapper > table {
+  width: 100%;
+  min-width: 600px;                   /* force scroll below 600px */
+  border-collapse: collapse;
+}
+
+/* ── Mobile: < 768px ───────────────────────────────────────────────────────
+   - Stack plan cards vertically (already the default for .plan-cards-grid,
+     stated explicitly here for documentation and future overrides).
+   - Activate the card-style billing layout if the markup includes a
+     companion `.billing-history-cards` block alongside the table.
+   ───────────────────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .plan-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  /* If both a regular table and a card-list are provided in the markup,
+     prefer the card list on mobile and hide the wide table. */
+  .billing-history-table {
+    display: none;
+  }
+  .billing-history-cards {
+    display: block;
+  }
+
+  /* Tables that must stay visible on mobile use the wrapper for
+     horizontal scrolling. */
+  .responsive-table-wrapper > table {
+    font-size: 0.8rem;
+  }
+  .responsive-table-wrapper > table th,
+  .responsive-table-wrapper > table td {
+    padding: 8px 10px;
+    white-space: nowrap;
+  }
+}
+
+/* ── Tablet: 768px – 1023px ──────────────────────────────────────────────── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .plan-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+
+  /* When card-list fallback is provided, hide it on tablet+ */
+  .billing-history-cards {
+    display: none;
+  }
+  .billing-history-table {
+    display: table;
+  }
+}
+
+/* ── Desktop: ≥ 1024px ───────────────────────────────────────────────────── */
+@media (min-width: 1024px) {
+  .plan-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    max-width: 820px;
+    margin-inline: auto;
+  }
+
+  .billing-history-cards {
+    display: none;
+  }
+  .billing-history-table {
+    display: table;
+  }
+}
+
+
+/* ╔══════════════════════════════════════════════════════════════════════╗
+   ║  Subscription Selection Modal (Task 3.1)                             ║
+   ║  MOVED TO: subscription-modal-premium.css                            ║
+   ║                                                                      ║
+   ║  The modal CSS has been moved to a dedicated file to match           ║
+   ║  the exact pricing page design without conflicts.                    ║
+   ║                                                                      ║
+   ║  See: frontend/css/subscription-modal-premium.css                    ║
+   ╚══════════════════════════════════════════════════════════════════════╝ */

@@ -68,6 +68,7 @@ def _create_tables() -> None:
     """
     from .base import Base
     import smartkcet.db.models as _models  # noqa: F401 — register all models
+    import smartkcet.db.subscription_models as _sub_models  # noqa: F401 — register subscription models
 
     Base.metadata.create_all(engine, checkfirst=True)
 
@@ -99,6 +100,10 @@ def get_session() -> Iterator[Session]:
     session = SessionLocal()
     try:
         yield session
+        session.commit()  # Auto-commit on success
+    except Exception:
+        session.rollback()  # Rollback on error
+        raise
     finally:
         session.close()
 

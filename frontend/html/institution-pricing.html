@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SmartKCET — Institution Plans</title>
+  <link rel="stylesheet" href="../css/style.css"/>
+  <!-- Preload Razorpay checkout script so it's ready when user clicks Subscribe -->
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <style>
+    /* ── Hero ── */
+    .ph { text-align:center;padding:52px 20px 32px; }
+    .ph h1 { font-size:2.4rem;font-weight:900;margin:0 0 10px;line-height:1.15; }
+    .ph p  { color:var(--muted);font-size:1rem;margin:0; }
+    .ph .grad { background:linear-gradient(90deg,#a78bfa,#60a5fa);-webkit-background-clip:text;-webkit-text-fill-color:transparent; }
+
+    /* ── Current plan bar ── */
+    .cur-bar { max-width:840px;margin:0 auto 28px;padding:0 24px; }
+    .cur-pill { display:inline-flex;align-items:center;gap:8px;background:rgba(5,150,105,.12);border:1px solid rgba(5,150,105,.3);border-radius:12px;padding:10px 18px;font-size:.85rem;color:var(--green-l);font-weight:600; }
+
+    /* ── Grid ── */
+    .pg { display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:24px;max-width:1100px;margin:0 auto 60px;padding:0 24px; }
+    @media(max-width:640px){ .pg { grid-template-columns:1fr; } }
+    @media(min-width:960px){ .pg { grid-template-columns:repeat(4,1fr); } }
+
+    /* ── Card ── */
+    .pc { background:var(--card-bg);border:1px solid var(--border);border-radius:16px;padding:32px 24px;display:flex;flex-direction:column;position:relative;transition:transform .15s,box-shadow .15s,border-color .18s; }
+    .pc:hover { transform:translateY(-4px);box-shadow:0 18px 44px rgba(0,0,0,.3); }
+    .pc.featured { border-color:var(--purple-l,#a78bfa);box-shadow:0 0 0 1px var(--purple-l,#a78bfa),0 8px 28px rgba(124,58,237,.18); }
+    .pc.enterprise { border-style:dashed; }
+
+    .pc-badge { position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#a78bfa,#6366f1);color:#fff;font-size:.72rem;font-weight:800;padding:4px 16px;border-radius:20px;white-space:nowrap; }
+
+    .pc-name    { font-size:1.1rem;font-weight:800;margin-bottom:4px; }
+    .pc-tagline { font-size:.8rem;color:var(--muted);margin-bottom:20px;min-height:36px; }
+
+    .pc-price { margin-bottom:4px; }
+    .pc-price .sym  { font-size:1.4rem;font-weight:700;vertical-align:super;color:var(--text); }
+    .pc-price .amt  { font-size:2.8rem;font-weight:900;line-height:1;color:var(--text); }
+    .pc-price .per  { font-size:.82rem;color:var(--muted);margin-left:4px; }
+    .pc-seats { font-size:.75rem;color:var(--muted2);margin-bottom:18px; }
+
+    .pc-feats { list-style:none;margin:0 0 24px;padding:0;flex:1;display:flex;flex-direction:column;gap:9px; }
+    .pc-feats li { display:flex;align-items:flex-start;gap:9px;font-size:.84rem;line-height:1.35; }
+    .pc-feats li.yes { color:var(--text); }
+    .pc-feats li.no  { color:var(--muted);opacity:.6; }
+    .pc-feats li .ic { flex-shrink:0;font-size:.85rem; }
+
+    .pc-cta { width:100%;padding:13px;border-radius:10px;font-size:.92rem;font-weight:700;cursor:pointer;border:none;transition:opacity .15s,transform .12s;margin-top:auto; }
+    .pc-cta:hover:not(:disabled) { opacity:.88;transform:translateY(-1px); }
+    .pc-cta.primary  { background:linear-gradient(135deg,#a78bfa,#6366f1);color:#fff;box-shadow:0 4px 16px rgba(124,58,237,.3); }
+    .pc-cta.outline  { background:transparent;border:1px solid var(--border);color:var(--text); }
+    .pc-cta.current  { background:rgba(5,150,105,.15);border:1px solid rgba(5,150,105,.3);color:var(--green-l);cursor:default; }
+    .pc-cta.contact  { background:linear-gradient(135deg,#1e1b4b,#312e81);color:#c7d2fe;border:1px solid #4338ca; }
+    .pc-cta:disabled { cursor:not-allowed; }
+
+    /* ── Pay modal ── */
+    .pmo { display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:1000;align-items:center;justify-content:center; }
+    .pmd { background:var(--card-bg);border:1px solid var(--border);border-radius:16px;padding:36px;max-width:460px;width:90%;position:relative; }
+    .pmd h3 { font-size:1.25rem;font-weight:800;margin:0 0 4px; }
+    .pmd-sub { color:var(--muted);font-size:.85rem;margin-bottom:16px; }
+    .pmo-amt { font-size:2.6rem;font-weight:900;color:var(--purple-l,#a78bfa);margin-bottom:20px; }
+    .pm-methods { display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px; }
+    .pm-badge { padding:5px 13px;border-radius:20px;font-size:.75rem;font-weight:600;background:var(--s2);border:1px solid var(--border);color:var(--muted2); }
+    .pmo-status { display:none;padding:12px 16px;border-radius:10px;font-size:.87rem;margin-bottom:14px; }
+    .pmo-actions { display:flex;gap:10px; }
+    .pmo-close { position:absolute;top:18px;right:18px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.3rem; }
+  </style>
+</head>
+<body>
+  <div class="bg-mesh"></div>
+
+  <nav class="navbar">
+    <div class="nav-brand">
+      <div class="brand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+      <span class="brand-name">SmartKCET<span class="brand-ai">Institution</span></span>
+    </div>
+    <div class="nav-links">
+      <a href="/institution/dashboard" class="nav-pill">Dashboard</a>
+      <a href="/institution/students" class="nav-pill">Students</a>
+      <a href="/institution/exams" class="nav-pill">Exams</a>
+      <a href="/institution/subscription" class="nav-pill active">Subscription</a>
+    </div>
+    <div class="nav-actions">
+      <a href="#" class="nav-pill" id="logoutBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </a>
+    </div>
+  </nav>
+
+  <main>
+    <div class="ph">
+      <h1>Empower Your <span class="grad">Institution</span></h1>
+      <p>Simple, transparent pricing. Everything your institution needs to excel at KCET.</p>
+    </div>
+
+    <!-- Current plan indicator -->
+    <div class="cur-bar">
+      <div id="currentPlanBar" style="display:none;" class="cur-pill">
+        <span>✅ Current plan:</span>
+        <span id="currentPlanName" style="font-weight:800;"></span>
+        <span id="currentPlanExpiry" style="opacity:.7;font-weight:400;"></span>
+      </div>
+    </div>
+
+    <!-- Demo test panel — only shown when Razorpay is in test mode (key starts with rzp_test_) -->
+    <div id="testPanel" style="display:none;max-width:840px;margin:0 auto 24px;padding:0 24px;">
+      <div style="background:rgba(217,119,6,0.08);border:1px solid rgba(217,119,6,0.3);border-radius:12px;padding:16px 20px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <span style="font-size:1rem;">🧪</span>
+          <span style="font-size:0.82rem;font-weight:700;color:var(--yellow-l);text-transform:uppercase;letter-spacing:0.5px;">Test Mode — Demo Payment Credentials</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;font-size:0.82rem;">
+          <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
+            <div style="font-weight:700;color:var(--text);margin-bottom:4px;">💳 Test Card (Domestic)</div>
+            <div style="color:var(--muted2);">Number: <code style="color:var(--green-l);background:var(--s2);padding:1px 5px;border-radius:4px;">5267 3181 8797 5449</code></div>
+            <div style="color:var(--muted2);">Expiry: any future date (e.g. 12/26)</div>
+            <div style="color:var(--muted2);">CVV: any 3 digits (e.g. 123)</div>
+            <div style="color:var(--muted2);">Name: anything (e.g. Test User)</div>
+            <div style="color:var(--muted2);">OTP: <code style="color:var(--green-l);">123456</code></div>
+          </div>
+          <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
+            <div style="font-weight:700;color:var(--text);margin-bottom:4px;">📱 Test UPI</div>
+            <div style="color:var(--muted2);">Success: <code style="color:var(--green-l);">success@razorpay</code></div>
+            <div style="color:var(--muted2);">Failure: <code style="color:var(--red-l);">failure@razorpay</code></div>
+          </div>
+          <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
+            <div style="font-weight:700;color:var(--text);margin-bottom:4px;">🏦 Test Net Banking</div>
+            <div style="color:var(--muted2);">Any bank → auto-success in test mode</div>
+            <div style="font-weight:700;color:var(--text);margin-top:8px;">⚠️ Important</div>
+            <div style="color:var(--muted2);">Do NOT use real cards — use test credentials above</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg" id="plansGrid">
+      <div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:40px;">Loading plans…</div>
+    </div>
+
+    <p style="text-align:center;color:var(--muted);font-size:.8rem;margin-bottom:56px;">
+      All plans include 24/7 platform access · Monthly billing · Cancel anytime
+    </p>
+  </main>
+
+  <!-- Payment modal -->
+  <div class="pmo" id="payModal">
+    <div class="pmd">
+      <button class="pmo-close" onclick="closePayModal()">✕</button>
+      <h3 id="payModalTitle">Subscribe</h3>
+      <div class="pmd-sub" id="payModalSub"></div>
+      <div class="pmo-amt" id="payModalAmt">—</div>
+      <div class="pm-methods">
+        <span class="pm-badge">📱 UPI</span>
+        <span class="pm-badge">💳 Visa / Mastercard</span>
+        <span class="pm-badge">🏧 RuPay</span>
+        <span class="pm-badge">🏦 Net Banking</span>
+        <span class="pm-badge">📲 GPay / PhonePe / Paytm</span>
+      </div>
+      <div class="pmo-status" id="payStatus"></div>
+      <div class="pmo-actions">
+        <button class="pc-cta outline" onclick="closePayModal()" style="flex:1;">Cancel</button>
+        <button class="pc-cta primary" id="payNowBtn" onclick="startPayment()" style="flex:2;">Subscribe Now →</button>
+      </div>
+      <p style="font-size:.72rem;color:var(--muted);text-align:center;margin-top:14px;">🔒 Secured by Razorpay · Auto-activates after payment</p>
+    </div>
+  </div>
+
+  <script src="../js/auth.js"></script>
+  <script>
+  (function() {
+    'use strict';
+
+    Auth.currentRole().then(function(user) {
+      if (!user || user.role !== 'institution_admin') { window.location.href = '/login'; }
+    });
+    document.getElementById('logoutBtn').addEventListener('click', function(e) {
+      e.preventDefault();
+      fetch('/api/auth/logout', { method:'POST', credentials:'include' })
+        .finally(function() { window.location.href = '/login'; });
+    });
+
+    var plans = []; var selectedPlan = null; var keyId = ''; var currentSub = null;
+
+    var META = {
+      'Starter': {
+        tagline: 'Perfect for small institutions getting started',
+        seats: 'Up to 50 students',
+        features: [
+          { yes:true,  text:'Up to 50 students' },
+          { yes:true,  text:'Institution question uploads' },
+          { yes:true,  text:'Chapter-wise test creation' },
+          { yes:true,  text:'Basic analytics dashboard' },
+          { yes:false, text:'Admin KCET question bank' },
+          { yes:false, text:'AI analytics' },
+          { yes:false, text:'Advanced reports' },
+        ],
+        cta: 'Choose Starter', ctaType:'outline', featured:false,
+      },
+      'Basic': {
+        tagline: 'More students, more insights',
+        seats: 'Up to 100 students',
+        features: [
+          { yes:true,  text:'Up to 100 students' },
+          { yes:true,  text:'Institution question uploads' },
+          { yes:true,  text:'Chapter-wise test creation' },
+          { yes:true,  text:'Full analytics dashboard' },
+          { yes:true,  text:'Limited Admin KCET question bank' },
+          { yes:false, text:'AI analytics' },
+          { yes:false, text:'Institution branding' },
+        ],
+        cta: 'Choose Basic', ctaType:'outline', featured:false,
+      },
+      'Premium': {
+        tagline: 'Everything for serious KCET institutions',
+        seats: 'Unlimited students',
+        features: [
+          { yes:true, text:'Unlimited students' },
+          { yes:true, text:'Full Admin KCET question bank' },
+          { yes:true, text:'Institution question uploads' },
+          { yes:true, text:'AI analytics & insights' },
+          { yes:true, text:'Advanced performance reports' },
+          { yes:true, text:'Institution branding' },
+          { yes:true, text:'Priority support' },
+        ],
+        cta: 'Choose Premium', ctaType:'primary', featured:true, badge:'⭐ Most Popular',
+      },
+      'Enterprise': {
+        tagline: 'Multi-campus & custom deployment',
+        seats: 'Custom',
+        features: [
+          { yes:true, text:'Everything in Premium' },
+          { yes:true, text:'Multi-campus management' },
+          { yes:true, text:'Dedicated support manager' },
+          { yes:true, text:'Custom integrations' },
+          { yes:true, text:'SLA guarantee' },
+          { yes:true, text:'Custom pricing' },
+        ],
+        cta: 'Contact Sales', ctaType:'contact', featured:false,
+      },
+    };
+
+    function loadData() {
+      Promise.all([
+        fetch('/api/payments/plans/institution').then(function(r) { return r.json(); }),
+        fetch('/api/institution/subscription', { credentials:'include' }).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+      ]).then(function(results) {
+        plans      = results[0].plans || [];
+        keyId      = results[0].key_id || '';
+        currentSub = results[1];
+
+        if (currentSub && currentSub.plan_name && currentSub.status === 'active') {
+          document.getElementById('currentPlanName').textContent = currentSub.plan_name;
+          var expiry = currentSub.next_renewal_date
+            ? '· Renews ' + new Date(currentSub.next_renewal_date).toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'})
+            : '';
+          document.getElementById('currentPlanExpiry').textContent = expiry;
+          document.getElementById('currentPlanBar').style.display = 'inline-flex';
+        }
+
+        renderPlans();
+
+        // Show test panel only when using Razorpay test keys
+        if (keyId && keyId.startsWith('rzp_test_')) {
+          document.getElementById('testPanel').style.display = 'block';
+        }
+      }).catch(function() {
+        document.getElementById('plansGrid').innerHTML =
+          '<div style="grid-column:1/-1;text-align:center;color:var(--red-l);padding:40px;">Failed to load plans. Please refresh.</div>';
+      });
+    }
+
+    function renderPlans() {
+      var grid = document.getElementById('plansGrid');
+      var order = ['Starter','Basic','Premium','Enterprise'];
+      var sorted = order.map(function(n) { return plans.find(function(p) { return p.name === n; }); }).filter(Boolean);
+      plans.forEach(function(p) { if (order.indexOf(p.name) === -1) sorted.push(p); });
+
+      grid.innerHTML = sorted.map(function(plan) {
+        var m = META[plan.name] || { tagline:'', features:[], cta:'Subscribe', ctaType:'outline', seats:'', featured:false };
+        var isCurrent = currentSub && currentSub.plan_name === plan.name && currentSub.status === 'active';
+        var isEnterprise = plan.name === 'Enterprise';
+
+        var featHtml = (m.features || []).map(function(f) {
+          return '<li class="'+(f.yes?'yes':'no')+'"><span class="ic">'+(f.yes?'✅':'❌')+'</span><span>'+esc(f.text)+'</span></li>';
+        }).join('');
+
+        var priceHtml = isEnterprise
+          ? '<div class="pc-price"><span class="amt" style="font-size:2rem;">Custom</span></div>'
+          : '<div class="pc-price"><span class="sym">₹</span><span class="amt">'+plan.price+'</span><span class="per">/month</span></div>';
+
+        var ctaLabel = isCurrent ? '✅ Current Plan' : m.cta;
+        var ctaClass = isCurrent ? 'current' : m.ctaType;
+        var ctaAttr  = isCurrent || isEnterprise ? 'disabled' : '';
+        var ctaClick = !isCurrent && !isEnterprise ? 'onclick="openPayModal(\''+plan.id+'\')"' : (isEnterprise ? 'onclick="contactSales()"' : '');
+
+        return '<div class="pc'+(m.featured?' featured':'')+(isEnterprise?' enterprise':'')+'">'+
+          (m.badge ? '<div class="pc-badge">'+m.badge+'</div>' : '')+
+          '<div class="pc-name">'+esc(plan.name)+'</div>'+
+          '<div class="pc-tagline">'+esc(m.tagline)+'</div>'+
+          priceHtml+
+          '<div class="pc-seats">'+esc(m.seats || (plan.max_student_seats ? plan.max_student_seats+' students' : 'Unlimited students'))+'</div>'+
+          '<ul class="pc-feats">'+featHtml+'</ul>'+
+          '<button class="pc-cta '+ctaClass+'" '+ctaAttr+' '+ctaClick+'>'+ctaLabel+'</button>'+
+        '</div>';
+      }).join('');
+    }
+
+    window.contactSales = function() {
+      window.location.href = 'mailto:sales@smartkcet.com?subject=Enterprise%20Plan%20Enquiry';
+    };
+
+    window.openPayModal = function(planId) {
+      selectedPlan = plans.find(function(p) { return p.id === planId; });
+      if (!selectedPlan) return;
+      document.getElementById('payModalTitle').textContent = selectedPlan.name + ' Plan';
+      document.getElementById('payModalSub').textContent   = 'Monthly billing · Auto-renews each month';
+      document.getElementById('payModalAmt').textContent   = '₹'+selectedPlan.price+'/month';
+      document.getElementById('payStatus').style.display   = 'none';
+      document.getElementById('payNowBtn').disabled        = false;
+      document.getElementById('payNowBtn').textContent     = 'Subscribe Now →';
+      document.getElementById('payModal').style.display    = 'flex';
+    };
+
+    window.closePayModal = function() {
+      document.getElementById('payModal').style.display = 'none';
+      selectedPlan = null;
+    };
+
+    function showStatus(msg, ok) {
+      var el = document.getElementById('payStatus');
+      el.textContent = msg; el.style.display = 'block';
+      el.style.background = ok ? 'rgba(5,150,105,.15)' : 'rgba(220,38,38,.15)';
+      el.style.color  = ok ? 'var(--green-l)' : 'var(--red-l)';
+      el.style.border = '1px solid '+(ok?'rgba(5,150,105,.3)':'rgba(220,38,38,.3)');
+    }
+
+    window.startPayment = async function() {
+      if (!selectedPlan) return;
+      var btn = document.getElementById('payNowBtn');
+      btn.disabled = true; btn.textContent = 'Creating order…';
+      try {
+        var r = await fetch('/api/payments/create-order', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          credentials:'include', body: JSON.stringify({ plan_id: selectedPlan.id }),
+        });
+        var d = await r.json();
+        if (!r.ok) { showStatus(d.message||'Failed to create order.',false); btn.disabled=false; btn.textContent='Subscribe Now →'; return; }
+
+        if (d._mock) {
+          showStatus('⚙️ Dev mode — simulating payment success…', true);
+          await fetch('/api/payments/verify', {
+            method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+            body: JSON.stringify({ razorpay_order_id:d.order_id, razorpay_payment_id:'pay_mock_'+Date.now(), razorpay_signature:'mock_sig', plan_id:selectedPlan.id }),
+          });
+          setTimeout(function() { closePayModal(); window.location.href='/institution/subscription'; }, 1500);
+          return;
+        }
+
+        var opts = {
+          key: d.key_id||keyId, amount:d.amount, currency:d.currency||'INR',
+          order_id:d.order_id, name:'SmartKCET Prep', description:d.description||selectedPlan.name,
+          prefill: d.prefill||{}, theme:{ color:'#a78bfa' },
+          handler: async function(res) {
+            btn.textContent = 'Verifying…';
+            var vr = await fetch('/api/payments/verify', {
+              method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+              body: JSON.stringify({ razorpay_order_id:res.razorpay_order_id, razorpay_payment_id:res.razorpay_payment_id, razorpay_signature:res.razorpay_signature, plan_id:selectedPlan.id }),
+            });
+            var vd = await vr.json();
+            if (vr.ok && vd.verified) {
+              showStatus('✅ Payment successful! Activating subscription…', true);
+              setTimeout(function() { closePayModal(); window.location.href='/institution/subscription'; }, 2000);
+            } else {
+              showStatus('⚠️ Verification failed. Contact support. Order: '+res.razorpay_order_id, false);
+              btn.disabled=false; btn.textContent='Subscribe Now →';
+            }
+          },
+          modal:{ ondismiss: function() { btn.disabled=false; btn.textContent='Subscribe Now →'; } },
+        };
+
+        // Razorpay script already preloaded in <head>
+        if (typeof window.Razorpay !== 'undefined') {
+          new window.Razorpay(opts).open();
+        } else {
+          showStatus('Payment gateway not loaded. Please refresh the page.', false);
+          btn.disabled=false; btn.textContent='Subscribe Now →';
+        }
+      } catch(e) {
+        console.error('Payment error:', e);
+        showStatus('Error: ' + (e.message || 'Please try again.'), false);
+        btn.disabled=false; btn.textContent='Subscribe Now →';
+      }
+    };
+
+    function esc(str) { var d=document.createElement('div'); d.appendChild(document.createTextNode(str||'')); return d.innerHTML; }
+
+    loadData();
+  })();
+  </script>
+</body>
+</html>

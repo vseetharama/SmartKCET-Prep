@@ -330,6 +330,24 @@ def submit(
         # fail the submission response.  Log and continue.
         logger.warning("leaderboard recompute_async raised: %s", exc)
 
+    # ---- Step 6: record usage for subscription tracking (REQ-5.1, 5.7) ----
+    # Record the exam attempt for usage tracking and quota enforcement
+    try:
+        from ..subscription.usage import UsageTracker
+        usage_tracker = UsageTracker(session)
+        
+        # Get the exam to determine subject
+        exam = session.get(Exam, exam_set.exam_id) if exam_set else None
+        
+        usage_tracker.record_attempt(
+            user_id=user.id,
+            submission_id=submission.id,
+            subject=exam.subject if exam is not None else "Unknown"
+        )
+    except Exception as exc:  # pragma: no cover - defensive belt
+        # Usage tracking is important but should not fail the submission
+        logger.warning("usage tracking record_attempt raised: %s", exc)
+
     response_body: dict[str, Any] = {
         "submission_id": str(submission.id),
         "submission": _serialise_submission(submission),

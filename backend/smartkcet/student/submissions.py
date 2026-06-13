@@ -2,6 +2,10 @@
 
 Implements task 8.5 / REQ-4.5, REQ-10.1, REQ-10.4, REQ-14.3.
 
+Access Control (Tasks 5.3, 5.4):
+- Free Trial: Basic analytics only (total score, pass/fail)
+- Pro: Full analytics (topic breakdowns, AI recommendations, trends)
+
 Endpoints
 ---------
 
@@ -33,6 +37,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..db.models import Exam, ExamSet, ExamSetQuestion, Question, Submission, Subject
 from ..db.session import get_session
 from ..middleware.rbac import current_user, require_student
+from ..subscription.dependencies import get_access_control
 
 router = APIRouter()
 
@@ -100,8 +105,13 @@ def list_submissions(
     offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_session),
     _student: dict = Depends(require_student),
+    access_control = Depends(get_access_control),
 ) -> Any:
-    """List the authenticated student's submissions, newest first."""
+    """List the authenticated student's submissions, newest first.
+    
+    **Subscription Integration (REQ-2.4):**
+    Response includes subscription status and remaining attempts for dashboard display.
+    """
 
     user = current_user(request, session)
     if user is None or user.role != "student":
@@ -141,11 +151,44 @@ def list_submissions(
     rows = session.execute(stmt).all()
     summaries = [_summary_row(sub, exam_set, exam) for sub, exam_set, exam in rows]
 
+    # Get subscription status and remaining attempts for dashboard display (REQ-2.4)
+    subscription_status = None
+    remaining_attempts_data = None
+    try:
+        # Get effective subscription status
+        from ..subscription.service import SubscriptionService
+        subscription_service = SubscriptionService(session)
+        effective_status = subscription_service.get_effective_status(user.id)
+        
+        subscription_status = {
+            "has_subscription": effective_status.has_subscription,
+            "status": effective_status.status,
+            "plan_type": effective_status.plan_type,
+            "billing_period": effective_status.billing_period,
+            "is_trial": effective_status.is_trial,
+            "is_active": effective_status.is_active,
+            "trial_attempts_remaining": effective_status.trial_attempts_remaining,
+            "next_renewal_date": effective_status.next_renewal_date.isoformat() if effective_status.next_renewal_date else None,
+            "grace_period_end": effective_status.grace_period_end.isoformat() if effective_status.grace_period_end else None,
+            "institution_id": str(effective_status.institution_id) if effective_status.institution_id else None,
+            "institution_name": effective_status.institution_name,
+        }
+        
+        # Get remaining attempts
+        remaining_attempts_data = access_control.get_remaining_attempts(user.id)
+    except Exception as exc:
+        # If we can't get subscription info, log but don't fail the request
+        import logging
+        logger = logging.getLogger("smartkcet.student.submissions")
+        logger.warning("Failed to get subscription info for user %s: %s", user.id, exc)
+
     return {
         "submissions": summaries,
         "limit": capped_limit,
         "offset": int(offset),
         "subject": selected_subject.value if selected_subject is not None else None,
+        "subscription_status": subscription_status,
+        "remaining_attempts": remaining_attempts_data,
     }
 
 
@@ -160,6 +203,7 @@ def get_submission(
     submission_id: uuid.UUID = Path(...),
     session: Session = Depends(get_session),
     _student: dict = Depends(require_student),
+    access_control = Depends(get_access_control),
 ) -> Any:
     """Return the full submission record (with question review).
 
@@ -236,7 +280,8 @@ def get_submission(
         )
 
     submitted_at = submission.submitted_at
-    return {
+    
+    analytics_data = {
         "id": str(submission.id),
         "exam_set_id": str(submission.exam_set_id),
         "exam_id": str(exam.id) if exam is not None else None,
@@ -253,6 +298,11 @@ def get_submission(
         "answers": submission.answers,
         "questions": questions,
     }
+    
+    # Filter analytics data based on subscription tier
+    filtered_data = access_control.filter_analytics_data(analytics_data, user.id)
+    
+    return filtered_data
 
 
 __all__ = ["router"]

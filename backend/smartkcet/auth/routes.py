@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import hmac
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -119,6 +119,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     display_name: str
+    invite_code: Optional[str] = None  # If provided, auto-links to institution on signup
 
 
 class LoginRequest(BaseModel):
@@ -186,6 +187,7 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)) 
         display_name=name_v,
         password_hash=password_hash,
         role="student",
+        student_subtype="direct_subscriber",  # default; may be changed below
     )
     session.add(user)
     try:
@@ -201,11 +203,82 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)) 
             },
         )
 
-    return {
+    # Step 5 — If invite_code provided, auto-link to institution
+    institution_name = None
+    institution_id_for_token = None
+    if payload.invite_code and payload.invite_code.strip():
+        invite_code = payload.invite_code.strip()
+        try:
+            from ..db.subscription_models import Invitation, Institution
+            from ..institution.service import InstitutionService
+            import logging as _log
+
+            _logger = _log.getLogger("smartkcet.auth.register")
+
+            inv = session.query(Invitation).filter(
+                Invitation.code == invite_code,
+                Invitation.status == "pending",
+            ).first()
+
+            if inv is None:
+                _logger.warning("Register invite-link: invitation code %r not found or not pending", invite_code)
+            elif inv.expires_at is None or inv.expires_at < datetime.utcnow():
+                _logger.warning("Register invite-link: invitation code %r expired (expires_at=%s)", invite_code, inv.expires_at)
+            else:
+                inst_service = InstitutionService(session)
+                inst_service.accept_invitation(invite_code, user.id)
+                # Refresh user to pick up institution_id and updated subtype
+                session.refresh(user)
+                # Ensure subtype is set even if transition logic had edge case
+                if user.student_subtype != "institution_linked":
+                    user.student_subtype = "institution_linked"
+                    session.commit()
+                    session.refresh(user)
+                # Get institution name for response
+                inst = session.query(Institution).filter(Institution.id == inv.institution_id).first()
+                if inst:
+                    institution_name = inst.name
+                institution_id_for_token = str(user.institution_id) if user.institution_id else None
+                _logger.info(
+                    "Register invite-link SUCCESS: user=%s subtype=%s institution_id=%s institution=%s",
+                    user.kcet_student_id, user.student_subtype, user.institution_id, institution_name,
+                )
+        except Exception as e:
+            # Don't fail registration if invite linking fails — user is already created
+            import logging
+            logging.getLogger("smartkcet.auth").warning(
+                "Auto-link to institution failed for invite code %s: %s", payload.invite_code, e
+            )
+
+    response_data = {
         "kcet_student_id": kcet_id,
         "email": normalised_email,
         "display_name": name_v,
     }
+
+    # If the student was linked to an institution, auto-login by issuing a
+    # session cookie so the frontend can redirect straight to their institution platform.
+    if institution_name:
+        response_data["institution_name"] = institution_name
+        response_data["institution_linked"] = True
+        response_data["auto_login"] = True
+
+        # Build a JSONResponse so we can attach the cookie
+        from fastapi.responses import JSONResponse as _JSONResponse
+
+        # Issue JWT for the newly-registered institution student
+        token, _jti, _iat, _exp = issue_token(
+            sub=user.kcet_student_id,
+            role="student",
+            student_subtype="institution_linked",
+            institution_id=institution_id_for_token,
+            subscription_status=None,
+        )
+        resp = _JSONResponse(content=response_data, status_code=status.HTTP_201_CREATED)
+        _set_session_cookie(resp, token, max_age=STUDENT_TOKEN_TTL_SEC)
+        return resp
+
+    return response_data
 
 
 # ---------------------------------------------------------------------------
@@ -320,13 +393,50 @@ def login(
             },
         )
 
-    token, _jti, _iat, _exp = issue_token(sub=user.kcet_student_id, role="student")
+    # Get subscription status for token claims
+    from ..db.subscription_models import Subscription
+    from sqlalchemy import and_
+
+    subscription_status = None
+    active_subscription = session.execute(
+        select(Subscription)
+        .where(
+            and_(
+                Subscription.user_id == user.id,
+                Subscription.status.in_(["trial", "active", "overdue", "grace_period"]),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if active_subscription:
+        subscription_status = active_subscription.status
+
+    # Issue token with extended claims — read from DB (authoritative, not cached)
+    token, _jti, _iat, _exp = issue_token(
+        sub=user.kcet_student_id,
+        role="student",
+        student_subtype=user.student_subtype,
+        institution_id=str(user.institution_id) if user.institution_id else None,
+        subscription_status=subscription_status,
+    )
     _set_session_cookie(response, token, max_age=STUDENT_TOKEN_TTL_SEC)
+
+    import logging as _log
+    _log.getLogger("smartkcet.auth.login").info(
+        "LOGIN: kcet_id=%s subtype=%s institution_id=%s redirect=%s",
+        user.kcet_student_id,
+        user.student_subtype,
+        user.institution_id,
+        "/student/institution/dashboard" if user.student_subtype == "institution_linked" else "/dashboard",
+    )
 
     return {
         "kcet_student_id": user.kcet_student_id,
         "display_name": user.display_name,
         "role": "student",
+        "student_subtype": user.student_subtype,
+        # redirect hint for the client — institution students go to their platform
+        "redirect": "/student/institution/dashboard" if user.student_subtype == "institution_linked" else "/dashboard",
     }
 
 
@@ -368,9 +478,115 @@ def admin_login(payload: LoginRequest, response: Response) -> Any:
         return _generic_auth_failure()
 
     # Single issuance site, gated on full credential match.
-    token, _jti, _iat, _exp = issue_token(sub=creds.email, role="admin")
+    token, _jti, _iat, _exp = issue_token(sub=creds.email, role="platform_admin")
     _set_session_cookie(response, token, max_age=ADMIN_TOKEN_TTL_SEC)
-    return {"role": "admin", "email": creds.email}
+    return {"role": "platform_admin", "email": creds.email}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/auth/institution/login
+# ---------------------------------------------------------------------------
+
+
+@router.post("/institution/login")
+def institution_admin_login(
+    payload: LoginRequest,
+    response: Response,
+    session: Session = Depends(get_session),
+) -> Any:
+    """Institution admin login with lockout policy.
+
+    Enforces the same lockout policy as student login (5 failed attempts,
+    15-minute lockout) per REQ-6.5.
+    """
+
+    # Lightweight shape check
+    if not isinstance(payload.email, str) or not payload.email:
+        return _generic_auth_failure()
+    if not isinstance(payload.password, str) or not payload.password:
+        return _generic_auth_failure()
+
+    normalised_email = payload.email.strip().lower()
+    now = _now()
+
+    try:
+        user = session.execute(
+            select(User).where(
+                User.email == normalised_email, User.role == "institution_admin"
+            )
+        ).scalar_one_or_none()
+    except OperationalError:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "error": "service_unavailable",
+                "message": "Database temporarily unavailable. Please try again later.",
+            },
+        )
+
+    # Unregistered email → generic failure
+    if user is None:
+        return _generic_auth_failure()
+
+    # Locked account → 423
+    if _is_locked(user, now):
+        retry_after_sec = max(int((user.lockout_until - now).total_seconds()), 1)
+        return JSONResponse(
+            status_code=status.HTTP_423_LOCKED,
+            content={
+                "error": "account_locked",
+                "message": "Account temporarily locked. Try again later.",
+                "retry_after_sec": retry_after_sec,
+            },
+            headers={"Retry-After": str(retry_after_sec)},
+        )
+
+    # Clean up expired lockout
+    if user.lockout_until is not None and user.lockout_until <= now:
+        _reset_lockout(user)
+
+    # Verify password
+    if not verify_password(payload.password, user.password_hash):
+        _record_failed_attempt(user, now)
+        try:
+            session.commit()
+        except OperationalError:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "error": "service_unavailable",
+                    "message": "Database temporarily unavailable. Please try again later.",
+                },
+            )
+        return _generic_auth_failure()
+
+    # Successful login
+    _reset_lockout(user)
+    try:
+        session.commit()
+    except OperationalError:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "error": "service_unavailable",
+                "message": "Database temporarily unavailable. Please try again later.",
+            },
+        )
+
+    # Issue token with institution_id claim
+    token, _jti, _iat, _exp = issue_token(
+        sub=user.email,
+        role="institution_admin",
+        institution_id=str(user.institution_id) if user.institution_id else None,
+    )
+    _set_session_cookie(response, token, max_age=ADMIN_TOKEN_TTL_SEC)
+
+    return {
+        "email": user.email,
+        "display_name": user.display_name,
+        "role": "institution_admin",
+        "institution_id": str(user.institution_id) if user.institution_id else None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -445,7 +661,16 @@ def me(
 
     result: dict[str, Any] = {"authenticated": True, "role": role, "sub": sub}
 
-    # For students, include display name and KCET ID.
+    # Include extended claims from token (as fallback)
+    if "student_subtype" in payload:
+        result["student_subtype"] = payload["student_subtype"]
+    if "institution_id" in payload:
+        result["institution_id"] = payload["institution_id"]
+    if "subscription_status" in payload:
+        result["subscription_status"] = payload["subscription_status"]
+
+    # For students, always re-read from DB to get current subtype/institution
+    # (the token may be stale if linking happened after token was issued)
     if role == "student":
         user = session.execute(
             select(User).where(User.kcet_student_id == sub)
@@ -453,6 +678,17 @@ def me(
         if user:
             result["display_name"] = user.display_name
             result["kcet_student_id"] = user.kcet_student_id
+            # Always use DB values — these are the ground truth
+            result["student_subtype"] = user.student_subtype
+            result["institution_id"] = str(user.institution_id) if user.institution_id else None
+
+    # For institution_admin, include display name
+    if role == "institution_admin":
+        user = session.execute(
+            select(User).where(User.email == sub, User.role == "institution_admin")
+        ).scalar_one_or_none()
+        if user:
+            result["display_name"] = user.display_name
 
     return result
 

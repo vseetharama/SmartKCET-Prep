@@ -87,7 +87,7 @@
     // ── Admin Auth Guard ──────────────────────────────────────────────────────
     (async function () {
       var user = await Auth.currentRole();
-      if (!user || user.role !== 'admin') {
+      if (!user || (user.role !== 'admin' && user.role !== 'platform_admin')) {
         window.location.href = '/login';
         return;
       }

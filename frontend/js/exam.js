@@ -15,6 +15,26 @@ let ES = {
   idempotencyKey: null
 };
 
+// ── Dashboard URL helper — returns correct dashboard for student type ─────────
+// Cached so we don't call /api/auth/me on every error path
+var _dashboardUrl = null;
+async function getDashboardUrl() {
+  if (_dashboardUrl) return _dashboardUrl;
+  try {
+    if (typeof Auth !== 'undefined' && Auth.currentRole) {
+      var user = await Auth.currentRole();
+      if (user && user.student_subtype === 'institution_linked') {
+        _dashboardUrl = '/student/institution/dashboard';
+        return _dashboardUrl;
+      }
+    }
+  } catch (e) { /* fall through */ }
+  _dashboardUrl = '/dashboard';
+  return _dashboardUrl;
+}
+// Sync version using cached value (safe after first async call)
+function dashboardUrl() { return _dashboardUrl || '/dashboard'; }
+
 // ── Utility: Generate UUID v4 ────────────────────────────────────────────────
 function generateUUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -68,7 +88,7 @@ async function renderExamSelection() {
           <div style="font-size:3rem;margin-bottom:16px;">📋</div>
           <h2 style="font-size:1.5rem;font-weight:700;margin-bottom:8px;">No Exams Available</h2>
           <p style="color:var(--muted);margin-bottom:24px;">There are no published exams at the moment. Check back later.</p>
-          <a href="/dashboard" class="btn-generate" style="text-decoration:none;display:inline-flex;">
+          <a href="${dashboardUrl()}" class="btn-generate" style="text-decoration:none;display:inline-flex;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3"/></svg>
             Back to Dashboard
           </a>
@@ -150,6 +170,14 @@ function escapeHtmlExam(str) {
 
 // ── Initialize exam page ─────────────────────────────────────────────────────
 (async function initExamPage() {
+  // Pre-fetch the correct dashboard URL for this student type
+  await getDashboardUrl();
+
+  // Initialize the persistent subscription banner (REQ-4.1, 4.2)
+  if (typeof SubscriptionBanner !== 'undefined' && SubscriptionBanner.init) {
+    try { SubscriptionBanner.init(); } catch (e) { console.error('Banner init failed:', e); }
+  }
+
   const examSetId = getUrlParam('set');
   if (!examSetId) {
     // No set specified — show exam selection UI
@@ -195,13 +223,13 @@ function escapeHtmlExam(str) {
 
     if (examRes.status === 404) {
       showToast('⚠️ Exam not found or not available.');
-      setTimeout(() => { window.location.href = '/dashboard'; }, 2000);
+      setTimeout(() => { window.location.href = dashboardUrl(); }, 2000);
       return;
     }
 
     if (!examRes.ok) {
       showToast('⚠️ Failed to load exam. Please try again.');
-      setTimeout(() => { window.location.href = '/dashboard'; }, 2000);
+      setTimeout(() => { window.location.href = dashboardUrl(); }, 2000);
       return;
     }
 
@@ -225,12 +253,16 @@ function escapeHtmlExam(str) {
   } catch (e) {
     console.error('Failed to load exam:', e);
     showToast('⚠️ Network error loading exam. Please try again.');
-    setTimeout(() => { window.location.href = '/dashboard'; }, 2000);
+    setTimeout(() => { window.location.href = dashboardUrl(); }, 2000);
     return;
   }
 
   // Show the entry overlay for student to confirm start
   document.getElementById('entryOverlay').style.display = 'flex';
+
+  // REQ-5.7 / 5.8 / 5.9 — populate the remaining-attempts indicator now that
+  // the exam metadata is loaded (subject, set) and the entry form is visible.
+  updateRemainingAttemptsDisplay();
 })();
 
 // ── Render previous result view (REQ-9.7) ────────────────────────────────────
@@ -274,7 +306,7 @@ function renderPreviousResult(submission) {
         </div>
       </div>
       <div style="display:flex;gap:12px;justify-content:center;">
-        <a href="/dashboard" class="btn-generate" style="text-decoration:none;">
+        <a href="${dashboardUrl()}" class="btn-generate" style="text-decoration:none;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3"/></svg>
           Go to Dashboard
         </a>
@@ -295,14 +327,359 @@ function renderPreviousResult(submission) {
 
 window.pickSet = () => {}; // No-op since set is URL-driven
 
-window.beginExam = () => {
+// ═══════════════════════════════════════════════════════════════════════════
+// SUBSCRIPTION ACCESS CONTROL (Task 4.1 — REQ-5.1 … 5.9)
+// ═══════════════════════════════════════════════════════════════════════════
+// Before starting an exam we call /api/exam/check-access via SubscriptionAPI
+// and route the response onto one of:
+//   • HTTP 200                          → proceed with the exam
+//   • 403 quota_exhausted               → "Upgrade to Pro" modal (REQ-5.3)
+//   • 403 institution_quota_exhausted   → institution quota modal (REQ-5.4)
+//   • 403 subscription_expired          → "Renew Subscription" modal (REQ-5.5)
+//   • 403 subscription_required         → SubscriptionModal.show() (REQ-5.6)
+// We also surface the user's remaining attempts on the entry form using the
+// cached subscription status (REQ-5.7 / 5.8 / 5.9) so the student knows what
+// they're working with before clicking "Begin Exam".
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Show the generic access-denied modal (REQ-5.3 / 5.4 / 5.5).
+ * Reuses the #examAccessDeniedOverlay markup from exam.html so callers
+ * only have to supply copy + actions.
+ */
+function showExamAccessDeniedModal(opts) {
+  opts = opts || {};
+  const overlay = document.getElementById('examAccessDeniedOverlay');
+  if (!overlay) {
+    // Fallback: surface the message via toast if the modal isn't present.
+    showToast(opts.message || '⚠️ Access denied.');
+    return;
+  }
+
+  const iconEl = document.getElementById('accessDeniedIcon');
+  const titleEl = document.getElementById('accessDeniedTitle');
+  const messageEl = document.getElementById('accessDeniedMessage');
+  const detailsEl = document.getElementById('accessDeniedDetails');
+  const primaryBtn = document.getElementById('accessDeniedPrimaryBtn');
+  const secondaryBtn = document.getElementById('accessDeniedSecondaryBtn');
+
+  if (iconEl) iconEl.textContent = opts.icon || '⚠️';
+  if (titleEl) titleEl.textContent = opts.title || 'Access Denied';
+  if (messageEl) messageEl.textContent = opts.message || 'You cannot start this exam right now.';
+
+  if (detailsEl) {
+    if (opts.detailsHtml) {
+      detailsEl.innerHTML = opts.detailsHtml;
+      detailsEl.style.display = 'flex';
+    } else {
+      detailsEl.innerHTML = '';
+      detailsEl.style.display = 'none';
+    }
+  }
+
+  if (primaryBtn) {
+    primaryBtn.textContent = opts.primaryLabel || 'Subscription';
+    primaryBtn.onclick = function () {
+      if (typeof opts.onPrimary === 'function') {
+        opts.onPrimary();
+      } else {
+        window.location.href = opts.primaryHref || '/subscription';
+      }
+    };
+  }
+  if (secondaryBtn) {
+    secondaryBtn.textContent = opts.secondaryLabel || 'Back to Dashboard';
+    secondaryBtn.onclick = function () {
+      if (typeof opts.onSecondary === 'function') {
+        opts.onSecondary();
+      } else {
+        window.location.href = opts.secondaryHref || '/dashboard';
+      }
+    };
+  }
+
+  overlay.style.display = 'flex';
+  overlay.setAttribute('aria-hidden', 'false');
+
+  // Activate the shared focus trap (Task 18.2). Tab cycling stays inside
+  // the dialog, Escape dismisses it, and focus is restored to the element
+  // that triggered the modal once it closes.
+  if (typeof window !== 'undefined' && window.FocusTrap) {
+    window.FocusTrap.activate(overlay, {
+      onEscape: hideExamAccessDeniedModal,
+      initialFocus: primaryBtn || secondaryBtn || null,
+    });
+  }
+}
+
+function hideExamAccessDeniedModal() {
+  const overlay = document.getElementById('examAccessDeniedOverlay');
+  if (!overlay) return;
+  overlay.style.display = 'none';
+  overlay.setAttribute('aria-hidden', 'true');
+  if (typeof window !== 'undefined' && window.FocusTrap) {
+    window.FocusTrap.deactivate(overlay);
+  }
+}
+
+/**
+ * Render the remaining-attempts indicator inside the entry form
+ * (REQ-5.7, 5.8, 5.9). Pulls data from the Subscription module — falls back
+ * to the SubscriptionAPI when the high-level module isn't wired up yet.
+ */
+async function updateRemainingAttemptsDisplay() {
+  const el = document.getElementById('remainingAttempts');
+  if (!el) return;
+
+  let data = null;
+  try {
+    if (typeof Subscription !== 'undefined' && Subscription.getStatus) {
+      data = await Subscription.getStatus();
+    } else if (typeof SubscriptionAPI !== 'undefined' && SubscriptionAPI.getStatus) {
+      const result = await SubscriptionAPI.getStatus();
+      if (result && result.ok) data = result.data;
+    }
+  } catch (e) {
+    // Network/auth errors — leave the indicator hidden, beginExam will still
+    // call check-access and surface a denial modal if needed.
+    console.warn('updateRemainingAttemptsDisplay failed:', e);
+  }
+
+  if (!data) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+
+  const planType = data.plan_type || '';
+  let label = '';
+
+  if (planType === 'pro' || data.quota_type === 'unlimited') {
+    // REQ-5.9 — Pro shows unlimited
+    label = '✨ Unlimited attempts';
+  } else if (planType === 'institution') {
+    // REQ-5.8 — institution students see weekly + monthly remaining
+    const bits = [];
+    if (typeof data.weekly_tests_remaining === 'number') {
+      bits.push('Weekly: ' + data.weekly_tests_remaining + ' remaining');
+    }
+    if (typeof data.monthly_tests_remaining === 'number') {
+      bits.push('Monthly: ' + data.monthly_tests_remaining + ' remaining');
+    }
+    label = bits.length ? '🏫 ' + bits.join(', ') : '🏫 Institution access';
+  } else if (planType === 'trial' || data.status === 'trial') {
+    // REQ-5.7 — Free Trial shows X of 5 remaining
+    if (typeof data.remaining_attempts === 'number'
+        && typeof data.total_attempts === 'number') {
+      label = '🎯 ' + data.remaining_attempts + ' of '
+            + data.total_attempts + ' attempts remaining';
+    } else if (typeof data.remaining_attempts === 'number') {
+      label = '🎯 ' + data.remaining_attempts + ' attempts remaining';
+    } else {
+      label = '🎯 Free Trial';
+    }
+  } else {
+    // No active subscription / unknown — leave hidden so the entry form
+    // doesn't show stale info.
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+
+  el.textContent = label;
+  el.style.display = 'block';
+}
+
+/**
+ * Check exam access and show the appropriate denial modal on failure.
+ * Returns true when access is granted, false otherwise.
+ *
+ * REQ-5.1: call POST /api/exam/check-access before generating the exam.
+ * REQ-5.2: only proceed when the call returns HTTP 200.
+ */
+async function ensureExamAccess() {
+  if (typeof SubscriptionAPI === 'undefined' || !SubscriptionAPI.checkExamAccess) {
+    // Subscription module not loaded — fail open so we don't block legitimate
+    // exams. The backend will still enforce access via /api/student/submit.
+    console.warn('SubscriptionAPI not loaded; skipping exam access check.');
+    return true;
+  }
+
+  let result;
+  try {
+    result = await SubscriptionAPI.checkExamAccess(ES.subject || '', ES.setLabel || '');
+  } catch (e) {
+    console.error('checkExamAccess threw:', e);
+    showToast('⚠️ Unable to verify exam access. Please try again.');
+    return false;
+  }
+
+  // REQ-5.2: HTTP 200 → proceed.
+  if (result && result.ok) {
+    return true;
+  }
+
+  // Session expired — bounce to login.
+  if (result && result.status === 401) {
+    showToast('⚠️ Session expired. Please log in again.');
+    setTimeout(function () { window.location.href = '/login'; }, 1200);
+    return false;
+  }
+
+  // REQ-5.3 … 5.6 — branch on the error_code returned by the backend.
+  const errorCode = (result && (result.errorCode || (result.data && result.data.error_code))) || null;
+  const errorData = (result && result.data) || {};
+  const db = dashboardUrl();
+  // For institution students, "View Subscription" makes no sense — use institution dashboard
+  const isInstitution = (_dashboardUrl === '/student/institution/dashboard');
+
+  if (errorCode === 'quota_exhausted') {
+    // REQ-5.3 — Free Trial limit reached.
+    showExamAccessDeniedModal({
+      icon: '🎯',
+      title: 'Free Trial Limit Reached',
+      message: errorData.message || 'You have used all 5 Free Trial exam attempts.',
+      primaryLabel: 'Upgrade to Pro',
+      primaryHref: '/subscription',
+      secondaryLabel: 'Back to Dashboard',
+      secondaryHref: db,
+    });
+    return false;
+  }
+
+  if (errorCode === 'institution_quota_exhausted') {
+    // REQ-5.4 — institution test limit reached.
+    let detailsHtml = '';
+    if (errorData.reset_date) {
+      let resetDate = errorData.reset_date;
+      try {
+        const d = new Date(errorData.reset_date);
+        if (!isNaN(d.getTime())) {
+          resetDate = d.toLocaleDateString('en-IN', {
+            day: 'numeric', month: 'short', year: 'numeric'
+          });
+        }
+      } catch (e) { /* keep raw string */ }
+      detailsHtml =
+        '<div style="display:flex;justify-content:space-between;padding:8px 12px;'
+        + 'background:var(--card-bg, var(--s2));border-radius:8px;">'
+        + '<span>Quota resets:</span><span style="font-weight:700;">'
+        + escapeHtmlExam(resetDate) + '</span></div>';
+    }
+    showExamAccessDeniedModal({
+      icon: '🏫',
+      title: 'Institution Quota Reached',
+      message: errorData.message || "Your institution's test quota has been reached.",
+      detailsHtml: detailsHtml,
+      primaryLabel: 'Back to Dashboard',
+      primaryHref: db,
+      secondaryLabel: 'Back to Dashboard',
+      secondaryHref: db,
+    });
+    return false;
+  }
+
+  if (errorCode === 'subscription_expired') {
+    // REQ-5.5 — subscription expired.
+    showExamAccessDeniedModal({
+      icon: '⏰',
+      title: 'Subscription Expired',
+      message: errorData.message || 'Your subscription has expired.',
+      primaryLabel: isInstitution ? 'Back to Dashboard' : 'Renew Subscription',
+      primaryHref: isInstitution ? db : '/subscription',
+      secondaryLabel: 'Back to Dashboard',
+      secondaryHref: db,
+    });
+    return false;
+  }
+
+  if (errorCode === 'subscription_required') {
+    // REQ-5.6 — open the plan selection modal for personal students;
+    // institution students should never hit this, but guard anyway.
+    if (isInstitution) {
+      showExamAccessDeniedModal({
+        icon: '🏫',
+        title: 'Institution Access Required',
+        message: 'Please contact your institution admin.',
+        primaryLabel: 'Back to Dashboard',
+        primaryHref: db,
+        secondaryLabel: 'Back to Dashboard',
+        secondaryHref: db,
+      });
+      return false;
+    }
+    if (typeof SubscriptionModal !== 'undefined' && SubscriptionModal.show) {
+      SubscriptionModal.show();
+    } else {
+      showExamAccessDeniedModal({
+        icon: '🎓',
+        title: 'Subscription Required',
+        message: 'Please activate a plan to start exams.',
+        primaryLabel: 'Choose a Plan',
+        primaryHref: '/subscription',
+        secondaryLabel: 'Back to Dashboard',
+        secondaryHref: db,
+      });
+    }
+    return false;
+  }
+
+  // Unknown 403 / other failure — show a generic denial.
+  showExamAccessDeniedModal({
+    icon: '⚠️',
+    title: 'Access Denied',
+    message: (result && result.error) || 'Unable to start exam. Please try again.',
+    primaryLabel: isInstitution ? 'Back to Dashboard' : 'View Subscription',
+    primaryHref: isInstitution ? db : '/subscription',
+    secondaryLabel: 'Back to Dashboard',
+    secondaryHref: db,
+  });
+  return false;
+}
+
+// Populate the remaining-attempts indicator as soon as the entry overlay is
+// rendered. We do this on a microtask so the topbar/info-box population in
+// initExamPage settles first.
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      updateRemainingAttemptsDisplay();
+    });
+  } else {
+    setTimeout(updateRemainingAttemptsDisplay, 0);
+  }
+}
+
+window.beginExam = async () => {
   const name = document.getElementById('studentName').value.trim();
   const roll = document.getElementById('studentRoll').value.trim();
   if (!name) { showToast('⚠️ Please enter your name'); return; }
   if (!roll) { showToast('⚠️ Please enter your roll number'); return; }
   if (!ES.questions || ES.questions.length === 0) {
     showToast('⚠️ No exam loaded. Please try again.');
-    setTimeout(() => { window.location.href = '/dashboard'; }, 2000);
+    setTimeout(() => { window.location.href = dashboardUrl(); }, 2000);
+    return;
+  }
+
+  // REQ-5.1 — verify subscription access before starting the exam.
+  const beginBtn = document.querySelector('.btn-generate[onclick*="beginExam"]');
+  if (beginBtn) {
+    beginBtn.disabled = true;
+    beginBtn.classList.add('is-loading');
+  }
+
+  let granted = false;
+  try {
+    granted = await ensureExamAccess();
+  } finally {
+    if (beginBtn) {
+      beginBtn.disabled = false;
+      beginBtn.classList.remove('is-loading');
+    }
+  }
+
+  if (!granted) {
+    // The denial modal is already visible — do not start the exam (REQ-5.2).
     return;
   }
 
@@ -592,7 +969,7 @@ var SubmissionQueue = (function() {
     // If any submission succeeded and queue is now empty, redirect to dashboard
     if (anySuccess && getQueue().length === 0) {
       stopRetryLoop();
-      window.location.href = '/dashboard';
+      window.location.href = dashboardUrl();
       return;
     }
 
@@ -600,7 +977,7 @@ var SubmissionQueue = (function() {
     // (REQ-9.5: redirect after successful persistence)
     if (anySuccess) {
       stopRetryLoop();
-      window.location.href = '/dashboard';
+      window.location.href = dashboardUrl();
       return;
     }
 
@@ -846,8 +1223,8 @@ window.submitPaper = async () => {
       throw new Error(errData.message || `Client error: ${res.status}`);
     }
 
-    // Success — redirect to dashboard (REQ-9.5)
-    window.location.href = '/dashboard';
+    // Success — redirect to the correct dashboard (REQ-9.5)
+    window.location.href = dashboardUrl();
 
   } catch (e) {
     console.error('Submission failed:', e);

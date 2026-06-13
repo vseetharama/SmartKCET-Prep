@@ -84,6 +84,23 @@ var Auth = (function () {
   }
 
   /**
+   * Institution admin login.
+   * POST /api/auth/institution/login with email and password.
+   * Returns { ok, status, data } where data contains role info on success.
+   */
+  async function institutionLogin(email, password) {
+    var result = await _post('/api/auth/institution/login', { email: email, password: password });
+    if (result.status === 503) {
+      return {
+        ok: false,
+        status: 503,
+        data: { message: 'Service temporarily unavailable. Please try again later.' },
+      };
+    }
+    return result;
+  }
+
+  /**
    * Register a new student account.
    * POST /api/auth/register with email, password, and displayName.
    * Returns { ok, status, data } where data contains kcet_student_id on success.
@@ -120,17 +137,25 @@ var Auth = (function () {
 
   /**
    * Check if the user is authenticated and redirect accordingly:
-   * - Students → /dashboard
-   * - Admins → /admin/upload
+   * - Institution students → /student/institution/dashboard
+   * - Personal students → /dashboard
+   * - Platform admins → /admin/upload
+   * - Institution admins → /institution/dashboard
    * Returns the user info if authenticated, or null if not.
    */
   async function redirectIfAuthenticated() {
     var user = await currentRole();
     if (user) {
-      if (user.role === 'admin') {
+      if (user.role === 'admin' || user.role === 'platform_admin') {
         window.location.href = '/admin/upload';
       } else if (user.role === 'student') {
-        window.location.href = '/dashboard';
+        if (user.student_subtype === 'institution_linked') {
+          window.location.href = '/student/institution/dashboard';
+        } else {
+          window.location.href = '/dashboard';
+        }
+      } else if (user.role === 'institution_admin') {
+        window.location.href = '/institution/dashboard';
       }
     }
     return user;
@@ -141,6 +166,7 @@ var Auth = (function () {
   return {
     login: login,
     adminLogin: adminLogin,
+    institutionLogin: institutionLogin,
     register: register,
     logout: logout,
     currentRole: currentRole,

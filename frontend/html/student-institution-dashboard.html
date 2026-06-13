@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Institution Dashboard — SmartKCET Prep</title>
+  <!-- Absolute paths — this page is served at /student/institution/dashboard -->
+  <link rel="stylesheet" href="/css/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* ── Institution-specific overrides (built on top of style.css) ────── */
+
+    /* Institution access banner */
+    .inst-access-bar {
+      position: relative; z-index: 1;
+      background: linear-gradient(90deg, rgba(37,99,235,0.14), rgba(124,58,237,0.14));
+      border-bottom: 1px solid rgba(124,58,237,0.22);
+      padding: 9px 28px;
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    }
+    .inst-label-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(124,58,237,0.15);
+      border: 1px solid rgba(124,58,237,0.3);
+      border-radius: 20px; padding: 3px 12px;
+      font-size: 0.72rem; font-weight: 700;
+      color: var(--purple-l); letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .inst-name-label { font-size: 0.9rem; font-weight: 700; color: var(--text); }
+    .inst-access-status {
+      margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+      border-radius: 20px; padding: 3px 12px;
+      font-size: 0.72rem; font-weight: 700;
+    }
+    .inst-access-status.active  { background: rgba(5,150,105,0.14); border: 1px solid rgba(5,150,105,0.3); color: var(--green-l); }
+    .inst-access-status.inactive{ background: rgba(220,38,38,0.12);  border: 1px solid rgba(220,38,38,0.3);  color: var(--red-l); }
+
+    /* Profile cards grid */
+    .profile-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px; margin-bottom: 24px;
+    }
+    .profile-card {
+      background: var(--s1); border: 1px solid var(--border);
+      border-radius: var(--r); padding: 16px 18px;
+    }
+    .profile-card-label {
+      font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+      color: var(--muted); margin-bottom: 5px; font-weight: 700;
+    }
+    .profile-card-val {
+      font-size: 0.95rem; font-weight: 700; color: var(--text);
+      word-break: break-word;
+    }
+    .profile-card-val.mono { font-family: 'Cascadia Code', monospace; color: var(--purple-l); }
+
+    /* 4-column KPI row for this dashboard */
+    .inst-kpi-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px; margin-bottom: 24px;
+    }
+    @media(max-width: 800px) { .inst-kpi-row { grid-template-columns: repeat(2,1fr); } }
+    @media(max-width: 480px) { .inst-kpi-row { grid-template-columns: 1fr; } }
+
+    /* Section grid (2 cols) */
+    .inst-section-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+    }
+    @media(max-width: 880px) { .inst-section-grid { grid-template-columns: 1fr; } }
+
+    /* Section header icon — constrained size */
+    .inst-sec-icon {
+      width: 30px; height: 30px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; font-size: 1rem;
+    }
+
+    /* Exam list inside sections */
+    .inst-exam-list { list-style: none; padding: 0; margin: 0; }
+    .inst-exam-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .inst-exam-row:last-child { border-bottom: none; }
+    .inst-exam-subject { flex: 1; font-size: 0.85rem; font-weight: 600; }
+    .inst-exam-tag {
+      font-size: 0.68rem; font-weight: 700; padding: 2px 8px;
+      border-radius: 8px; white-space: nowrap;
+    }
+    .inst-exam-tag.platform    { background: rgba(8,145,178,0.12); border: 1px solid rgba(8,145,178,0.25); color: var(--cyan-l); }
+    .inst-exam-tag.institution { background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.25); color: var(--purple-l); }
+    .inst-exam-sets { font-size: 0.68rem; color: var(--muted); }
+    .inst-start-btn {
+      font-size: 0.72rem; padding: 4px 10px; border-radius: 6px;
+      background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.3);
+      color: var(--purple-l); cursor: pointer; text-decoration: none;
+      transition: background 0.15s; white-space: nowrap;
+    }
+    .inst-start-btn:hover { background: rgba(124,58,237,0.22); }
+
+    /* Leaderboard table */
+    .inst-lb-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .inst-lb-table th {
+      text-align: left; padding: 8px 12px; font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--muted); border-bottom: 1px solid var(--border); font-weight: 700;
+    }
+    .inst-lb-table td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+    .inst-lb-table tr:last-child td { border-bottom: none; }
+    .inst-lb-table tr.mine { background: rgba(124,58,237,0.07); }
+    .lb-rank { text-align: center; font-size: 1rem; }
+    .lb-name { font-weight: 600; }
+    .lb-id   { font-size: 0.72rem; color: var(--muted); font-family: monospace; }
+    .lb-you  { font-size: 0.68rem; color: var(--purple-l); margin-left: 4px; }
+
+    /* Empty state for sections */
+    .inst-empty { text-align: center; padding: 28px 16px; color: var(--muted); font-size: 0.83rem; }
+
+    /* Quick-action buttons full width */
+    .qa-btn {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; padding: 10px 16px; border-radius: var(--rs);
+      font-size: 0.85rem; font-weight: 600; cursor: pointer;
+      text-decoration: none; transition: all 0.18s;
+    }
+    .qa-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+    .qa-btn.primary { background: linear-gradient(135deg, var(--purple), var(--blue)); border: none; color: white; box-shadow: 0 2px 12px rgba(124,58,237,0.3); }
+    .qa-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(124,58,237,0.45); }
+    .qa-btn.outline { background: transparent; border: 1px solid var(--border2); color: var(--text); }
+    .qa-btn.outline:hover { border-color: rgba(124,58,237,0.4); background: rgba(124,58,237,0.06); }
+  </style>
+</head>
+<body>
+  <div class="bg-mesh"></div>
+
+  <!-- Navbar — matches normal dashboard navbar exactly -->
+  <nav class="navbar" aria-label="Main navigation">
+    <div class="nav-brand">
+      <div class="brand-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </div>
+      <span class="brand-name">SmartKCET<span class="brand-ai">Prep</span></span>
+    </div>
+    <div class="nav-links">
+      <a href="/student/institution/dashboard" class="nav-pill active" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a href="/student/institution/exams" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        My Exams
+      </a>
+      <a href="/student/institution/exams" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Practice
+      </a>
+      <a href="/student/institution/leaderboard" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15l-3 3h6l-3-3z"/><path d="M5 9l7-7 7 7"/><path d="M4 19h16"/></svg>
+        Leaderboard
+      </a>
+      <a href="/student/institution/performance" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Performance
+      </a>
+    </div>
+    <div class="nav-actions">
+      <a href="#" class="nav-pill" id="logoutBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </a>
+    </div>
+  </nav>
+
+  <!-- Institution access banner -->
+  <div class="inst-access-bar" id="accessBar">
+    <span class="inst-label-badge">🏫 Institution Student</span>
+    <span class="inst-name-label" id="instName">Loading…</span>
+    <span class="inst-access-status inactive" id="accessStatus">Checking…</span>
+  </div>
+
+  <main class="dash-main">
+
+    <!-- Page header -->
+    <div class="dash-hero">
+      <div>
+        <h1 class="dash-title">Institution <span class="hero-gradient">Dashboard</span></h1>
+        <p class="dash-sub" id="dashSub">Your institution exam platform</p>
+      </div>
+      <div class="dash-hero-right">
+        <div class="last-updated" id="lastUpdated">Last updated: —</div>
+        <button class="btn-outline" onclick="loadAll()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading / error states -->
+    <div id="stateLoading" style="text-align:center;padding:60px 20px;color:var(--muted)">
+      <div style="font-size:1.8rem;margin-bottom:10px">⏳</div>
+      <p>Loading your dashboard…</p>
+    </div>
+    <div id="stateError" style="display:none;text-align:center;padding:60px 20px;color:var(--muted)">
+      <div style="font-size:1.8rem;margin-bottom:10px">⚠️</div>
+      <p id="errMsg">Could not load profile. Please refresh.</p>
+    </div>
+
+    <!-- Main content -->
+    <div id="mainContent" style="display:none">
+
+      <!-- Profile cards -->
+      <div class="profile-grid" id="profileGrid"></div>
+
+      <!-- KPI Row (reuses existing kpi-tile classes from style.css) -->
+      <div class="inst-kpi-row">
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon purple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+          </div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiExams">0</div>
+            <div class="kpi-tile-label">Exams Taken</div>
+          </div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon cyan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>
+          </div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiAvg">0%</div>
+            <div class="kpi-tile-label">Avg Score</div>
+          </div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiPass">0%</div>
+            <div class="kpi-tile-label">Pass Rate</div>
+          </div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon orange">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15l-3 3h6l-3-3z"/><path d="M5 9l7-7 7 7"/><path d="M4 19h16"/></svg>
+          </div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiRank">—</div>
+            <div class="kpi-tile-label">Institution Rank</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section grid -->
+      <div class="inst-section-grid">
+
+        <!-- Available Exams -->
+        <div class="section-card">
+          <div class="section-card-header">
+            <div class="inst-sec-icon" style="background:rgba(124,58,237,0.15)">📚</div>
+            <div>
+              <h2 style="font-size:0.88rem;margin-bottom:2px">Available Exams</h2>
+              <p class="section-sub">Institution &amp; platform exams</p>
+            </div>
+            <span id="examCountBadge" style="margin-left:auto;font-size:0.72rem;color:var(--muted);background:var(--s3);border-radius:10px;padding:2px 8px">0</span>
+          </div>
+          <div class="section-body" style="padding:16px 20px">
+            <ul class="inst-exam-list" id="examList">
+              <li class="inst-empty">Loading exams…</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Institution Leaderboard -->
+        <div class="section-card">
+          <div class="section-card-header">
+            <div class="inst-sec-icon" style="background:rgba(217,119,6,0.15)">🏆</div>
+            <div>
+              <h2 style="font-size:0.88rem;margin-bottom:2px">Institution Leaderboard</h2>
+              <p class="section-sub">Top performers in your institution</p>
+            </div>
+            <a href="/student/institution/leaderboard" style="margin-left:auto;font-size:0.72rem;color:var(--purple-l);text-decoration:none">View all →</a>
+          </div>
+          <div class="section-body" style="padding:0">
+            <table class="inst-lb-table">
+              <thead><tr>
+                <th style="width:42px">Rank</th>
+                <th>Student</th>
+                <th>Avg</th>
+                <th>Exams</th>
+              </tr></thead>
+              <tbody id="lbBody">
+                <tr><td colspan="4" class="inst-empty">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Recent Performance -->
+        <div class="section-card">
+          <div class="section-card-header">
+            <div class="inst-sec-icon" style="background:rgba(5,150,105,0.15)">📈</div>
+            <div>
+              <h2 style="font-size:0.88rem;margin-bottom:2px">My Performance</h2>
+              <p class="section-sub">Recent exam results</p>
+            </div>
+            <a href="/student/institution/performance" style="margin-left:auto;font-size:0.72rem;color:var(--purple-l);text-decoration:none">Full history →</a>
+          </div>
+          <div class="section-body" style="padding:0;max-height:300px;overflow-y:auto">
+            <table class="results-table">
+              <thead><tr>
+                <th>Subject</th><th>Set</th><th>Score</th><th>Status</th>
+              </tr></thead>
+              <tbody id="perfBody">
+                <tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="section-card">
+          <div class="section-card-header">
+            <div class="inst-sec-icon" style="background:rgba(37,99,235,0.15)">⚡</div>
+            <div>
+              <h2 style="font-size:0.88rem;margin-bottom:2px">Quick Actions</h2>
+              <p class="section-sub">Jump to key features</p>
+            </div>
+          </div>
+          <div class="section-body" style="display:flex;flex-direction:column;gap:10px">
+            <a href="/student/institution/exams" class="qa-btn primary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Start Practice Exam
+            </a>
+            <a href="/student/institution/exams" class="qa-btn outline">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/></svg>
+              View Assigned Exams
+            </a>
+            <a href="/student/institution/performance" class="qa-btn outline">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              Full Analytics
+            </a>
+            <a href="/student/institution/leaderboard" class="qa-btn outline">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15l-3 3h6l-3-3z"/><path d="M5 9l7-7 7 7"/></svg>
+              Institution Rankings
+            </a>
+            <a href="/syllabus" class="qa-btn outline">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+              KCET Syllabus
+            </a>
+          </div>
+        </div>
+
+      </div><!-- /.inst-section-grid -->
+    </div><!-- /#mainContent -->
+  </main>
+
+  <!-- Absolute JS paths -->
+  <script src="/js/auth.js"></script>
+  <script>
+  // ── Boot guard ─────────────────────────────────────────────────────────────
+  Auth.currentRole().then(function(u) {
+    if (!u) { window.location.href = '/login'; return; }
+    if (u.role !== 'student' || u.student_subtype !== 'institution_linked') {
+      window.location.href = u.role === 'student' ? '/dashboard' : '/login';
+    }
+  });
+
+  document.getElementById('logoutBtn').addEventListener('click', function(e) {
+    e.preventDefault();
+    fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+      .finally(function() { window.location.href = '/login'; });
+  });
+
+  // ── Data loading ───────────────────────────────────────────────────────────
+  async function loadAll() {
+    document.getElementById('stateLoading').style.display = 'block';
+    document.getElementById('stateError').style.display = 'none';
+    document.getElementById('mainContent').style.display = 'none';
+
+    try {
+      var [profR, examR, lbR, perfR] = await Promise.all([
+        fetch('/api/institution/student/me',          { credentials: 'include' }),
+        fetch('/api/institution/student/exams',        { credentials: 'include' }),
+        fetch('/api/institution/student/leaderboard',  { credentials: 'include' }),
+        fetch('/api/institution/student/performance',  { credentials: 'include' }),
+      ]);
+
+      if (profR.status === 401 || profR.status === 403) {
+        window.location.href = '/login'; return;
+      }
+
+      var prof  = profR.ok  ? await profR.json()  : null;
+      var exams = examR.ok  ? await examR.json()  : { subjects: [] };
+      var lb    = lbR.ok    ? await lbR.json()    : { leaderboard: [], my_rank: null, total: 0 };
+      var perf  = perfR.ok  ? await perfR.json()  : { submissions: [], summary: {} };
+
+      if (prof) renderProfile(prof);
+      renderExams(exams);
+      renderLeaderboard(lb);
+      renderPerf(perf);
+
+      document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+      document.getElementById('stateLoading').style.display = 'none';
+      document.getElementById('mainContent').style.display = 'block';
+    } catch (e) {
+      console.error(e);
+      document.getElementById('stateLoading').style.display = 'none';
+      document.getElementById('stateError').style.display = 'block';
+      document.getElementById('errMsg').textContent = 'Network error. Please refresh.';
+    }
+  }
+
+  function renderProfile(p) {
+    var instName = p.institution_name || 'Your Institution';
+    document.getElementById('instName').textContent = instName;
+    document.getElementById('dashSub').textContent = instName + ' — Exam Platform';
+
+    var pill = document.getElementById('accessStatus');
+    var active = ['active','trial','grace_period'].includes(p.access_status);
+    pill.textContent = active ? '✅ Access Active' : '⚠️ Access Inactive';
+    pill.className = 'inst-access-status ' + (active ? 'active' : 'inactive');
+
+    var cards = [
+      { label: 'Your Name',       val: p.display_name,    mono: false },
+      { label: 'KCET Student ID', val: p.kcet_student_id || '—', mono: true },
+      { label: 'Institution',     val: instName,          mono: false },
+      { label: 'Access Status',   val: cap(p.access_status), mono: false },
+      { label: 'Plan',            val: p.plan_name || 'Institution Plan', mono: false },
+      { label: 'Renews',          val: p.next_renewal_date ? new Date(p.next_renewal_date).toLocaleDateString() : '—', mono: false },
+    ];
+    document.getElementById('profileGrid').innerHTML = cards.map(function(c) {
+      return '<div class="profile-card">' +
+        '<div class="profile-card-label">' + esc(c.label) + '</div>' +
+        '<div class="profile-card-val' + (c.mono ? ' mono' : '') + '">' + esc(c.val) + '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  function renderExams(data) {
+    var subs = data.subjects || [];
+    var all = [];
+    subs.forEach(function(s) { (s.exams || []).forEach(function(e) { e._subj = s.subject; all.push(e); }); });
+    document.getElementById('examCountBadge').textContent = all.length;
+    var ul = document.getElementById('examList');
+    if (!all.length) { ul.innerHTML = '<li class="inst-empty">No exams available yet</li>'; return; }
+    ul.innerHTML = all.slice(0, 8).map(function(e) {
+      var tag = e.is_institution_exam
+        ? '<span class="inst-exam-tag institution">Institution</span>'
+        : '<span class="inst-exam-tag platform">Platform</span>';
+      // Link to exams listing page (student picks set there)
+      var firstSetId = e.sets && e.sets[0] ? e.sets[0].exam_set_id : null;
+      var startUrl = firstSetId ? '/exam?set=' + encodeURIComponent(firstSetId) : '/student/institution/exams';
+      return '<li class="inst-exam-row">' +
+        '<span class="inst-exam-subject">' + esc(e._subj) + (e.exam_name ? ' — ' + esc(e.exam_name) : '') + '</span>' +
+        tag +
+        '<span class="inst-exam-sets">' + (e.set_count || 0) + ' sets</span>' +
+        '<a href="' + startUrl + '" class="inst-start-btn">Start →</a>' +
+        '</li>';
+    }).join('');
+  }
+
+  function renderLeaderboard(data) {
+    var entries = data.leaderboard || [];
+    var myRank = data.my_rank;
+    document.getElementById('kpiRank').textContent = myRank ? '#' + myRank : '—';
+    var medals = ['🥇','🥈','🥉'];
+    var tbody = document.getElementById('lbBody');
+    if (!entries.length) { tbody.innerHTML = '<tr><td colspan="4" class="inst-empty">No ranking data yet</td></tr>'; return; }
+    tbody.innerHTML = entries.slice(0, 8).map(function(e) {
+      var s = e.avg_score || 0;
+      var cls = s >= 70 ? 'score-high' : s >= 40 ? 'score-mid' : 'score-low';
+      var medal = medals[e.rank - 1] || ('#' + e.rank);
+      var mine = e.rank === myRank;
+      return '<tr' + (mine ? ' class="mine"' : '') + '>' +
+        '<td class="lb-rank">' + medal + '</td>' +
+        '<td><div class="lb-name">' + esc(e.display_name) + (mine ? '<span class="lb-you">(You)</span>' : '') + '</div>' +
+        '<div class="lb-id">' + esc(e.kcet_student_id || '') + '</div></td>' +
+        '<td><span class="score-badge ' + cls + '">' + s + '%</span></td>' +
+        '<td style="color:var(--muted)">' + e.attempts + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function renderPerf(data) {
+    var subs = data.submissions || [];
+    var sm   = data.summary || {};
+    document.getElementById('kpiExams').textContent = sm.total_exams || 0;
+    document.getElementById('kpiAvg').textContent   = (sm.avg_score  || 0) + '%';
+    document.getElementById('kpiPass').textContent  = (sm.pass_rate  || 0) + '%';
+    var tbody = document.getElementById('perfBody');
+    if (!subs.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted)">No exam history yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = subs.slice(0, 8).map(function(s) {
+      var p = Math.round(s.score_pct);
+      var cls = p >= 70 ? 'score-high' : p >= 40 ? 'score-mid' : 'score-low';
+      return '<tr>' +
+        '<td style="font-weight:600;color:var(--purple-l)">' + esc(s.subject || '—') + '</td>' +
+        '<td>' + esc(s.set_label || '—') + '</td>' +
+        '<td><span class="score-badge ' + cls + '">' + p + '%</span></td>' +
+        '<td class="' + (s.pass_flag ? 'status-pass' : 'status-fail') + '">' + (s.pass_flag ? '✅' : '❌') + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1).replace('_',' ') : '—'; }
+  function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  loadAll();
+  </script>
+</body>
+</html>

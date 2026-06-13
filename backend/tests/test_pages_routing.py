@@ -48,13 +48,18 @@ def client() -> TestClient:
 
 @pytest.fixture()
 def student_token() -> str:
-    token, _jti, _iat, _exp = issue_token(sub="KCET0001", role="student")
+    token, _jti, _iat, _exp = issue_token(
+        sub="KCET0001",
+        role="student",
+        student_subtype="direct_subscriber",
+        subscription_status="trial",
+    )
     return token
 
 
 @pytest.fixture()
 def admin_token() -> str:
-    token, _jti, _iat, _exp = issue_token(sub="admin@test.com", role="admin")
+    token, _jti, _iat, _exp = issue_token(sub="admin@test.com", role="platform_admin")
     return token
 
 

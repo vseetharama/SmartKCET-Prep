@@ -65,27 +65,44 @@ def _secret() -> str:
 # ---------------------------------------------------------------------------
 
 
-Role = Literal["student", "admin"]
+Role = Literal["platform_admin", "institution_admin", "student"]
 
 
 def _ttl_for(role: Role) -> int:
     if role == "student":
         return STUDENT_TOKEN_TTL_SEC
-    if role == "admin":
+    if role in ("platform_admin", "institution_admin"):
         return ADMIN_TOKEN_TTL_SEC
     raise ValueError(f"unknown role: {role!r}")
 
 
-def issue_token(*, sub: str, role: Role) -> tuple[str, str, int, int]:
-    """Mint a new Session_Token.
+def issue_token(
+    *,
+    sub: str,
+    role: Role,
+    student_subtype: str | None = None,
+    institution_id: str | None = None,
+    subscription_status: str | None = None,
+) -> tuple[str, str, int, int]:
+    """Mint a new Session_Token with extended claims.
 
     Parameters
     ----------
     sub
         Subject claim — the KCET_Student_ID for students, the admin email
-        for the singleton admin.
+        for platform_admin, or the institution_admin email.
     role
-        Either ``"student"`` or ``"admin"``.  Picks the TTL bound.
+        One of ``"platform_admin"``, ``"institution_admin"``, or ``"student"``.
+        Picks the TTL bound.
+    student_subtype
+        For students: one of ``"direct_subscriber"``, ``"institution_linked"``,
+        or ``"dual"``. Required when role is ``"student"``.
+    institution_id
+        Institution UUID string. Required for ``"institution_admin"`` and
+        institution-linked/dual students.
+    subscription_status
+        Current subscription status for students (e.g., ``"trial"``, ``"active"``,
+        ``"expired"``). Required when role is ``"student"``.
 
     Returns
     -------
@@ -108,6 +125,20 @@ def issue_token(*, sub: str, role: Role) -> tuple[str, str, int, int]:
         "exp": exp,
         "jti": jti,
     }
+
+    # Add extended claims based on role
+    if role == "student":
+        if student_subtype:
+            payload["student_subtype"] = student_subtype
+        if subscription_status:
+            payload["subscription_status"] = subscription_status
+
+    # Add institution_id for institution_admin and institution-linked students
+    if role == "institution_admin" and institution_id:
+        payload["institution_id"] = institution_id
+    elif role == "student" and student_subtype in ("institution_linked", "dual") and institution_id:
+        payload["institution_id"] = institution_id
+
     token = jwt.encode(payload, _secret(), algorithm=ALGORITHM)
     # PyJWT >=2 returns ``str`` already; older versions returned ``bytes``.
     if isinstance(token, bytes):  # pragma: no cover - safety belt
@@ -176,16 +207,38 @@ def revoke_token(session: Session, jti: str, expires_at: datetime | None = None)
     return True
 
 
+def revoke_user_tokens(session: Session, user_id: uuid.UUID) -> int:
+    """Revoke all active tokens for a user (used when subtype/institution changes).
+
+    This is called when a student's subtype or institution linkage changes,
+    requiring re-authentication with updated token claims (REQ-10.7).
+
+    Returns the count of tokens revoked.
+
+    Note: This is a simplified implementation that relies on the user
+    re-authenticating. In a production system with token tracking, you would
+    query active tokens by user_id and revoke them individually.
+    """
+    # Since we don't track user_id -> jti mappings in the current schema,
+    # this function serves as a placeholder for the token invalidation logic.
+    # The actual enforcement happens when the user makes their next request:
+    # the middleware will detect the mismatch between token claims and DB state.
+    # For now, we return 0 to indicate no direct revocations were made.
+    return 0
+
+
 __all__ = [
     "ADMIN_TOKEN_TTL_SEC",
     "ALGORITHM",
     "STUDENT_TOKEN_TTL_SEC",
     "TOKEN_ISSUE_INVOKED",
     "TokenError",
+    "Role",
     "decode_token",
     "is_revoked",
     "issue_token",
     "reset_token_counter",
     "revoke_token",
+    "revoke_user_tokens",
     "validate_token",
 ]

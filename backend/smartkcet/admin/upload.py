@@ -100,10 +100,11 @@ def _compute_file_hash(content: bytes) -> str:
 
 
 def _check_duplicate(db: Session, subject: str, file_hash: str) -> Optional[IndexedFile]:
-    """Check if a file with the same hash already exists for this subject."""
+    """Check if a file with the same hash already exists for admin (institution_id IS NULL)."""
     stmt = select(IndexedFile).where(
         IndexedFile.subject == subject,
         IndexedFile.file_hash == file_hash,
+        IndexedFile.institution_id.is_(None),
     )
     return db.execute(stmt).scalar_one_or_none()
 
@@ -116,13 +117,14 @@ def _record_indexed_file(
     file_size: int,
     chunk_count: int,
 ) -> IndexedFile:
-    """Insert a new IndexedFile record and commit."""
+    """Insert a new admin IndexedFile record (institution_id=NULL) and commit."""
     record = IndexedFile(
         subject=subject,
         filename=filename,
         file_hash=file_hash,
         file_size=file_size,
         chunk_count=chunk_count,
+        institution_id=None,  # admin/global
     )
     db.add(record)
     db.commit()
@@ -136,7 +138,7 @@ def _store_mcqs_in_db(
     subject: str,
     batch_id: uuid.UUID,
 ) -> int:
-    """Store extracted MCQs as Question rows in the database.
+    """Store extracted MCQs as platform-wide Question rows (institution_id=NULL).
 
     Returns the number of questions successfully stored.
     """
@@ -158,6 +160,7 @@ def _store_mcqs_in_db(
             correct_option=str(ans),
             topic=topic if isinstance(topic, str) else "General",
             generation_batch_id=batch_id,
+            institution_id=None,  # platform-wide
         )
         db.add(row)
         stored += 1

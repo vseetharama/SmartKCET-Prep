@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Performance — SmartKCET Prep</title>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="bg-mesh"></div>
+  <nav class="navbar" aria-label="Main navigation">
+    <div class="nav-brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </div>
+      <span class="brand-name">SmartKCET<span class="brand-ai">Prep</span></span>
+    </div>
+    <div class="nav-links">
+      <a href="/student/institution/dashboard" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a href="/student/institution/exams" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/></svg>
+        My Exams
+      </a>
+      <a href="/student/institution/exams" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Practice
+      </a>
+      <a href="/student/institution/leaderboard" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15l-3 3h6l-3-3z"/><path d="M5 9l7-7 7 7"/></svg>
+        Leaderboard
+      </a>
+      <a href="/student/institution/performance" class="nav-pill active" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Performance
+      </a>
+    </div>
+    <div class="nav-actions">
+      <a href="#" class="nav-pill" id="logoutBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </a>
+    </div>
+  </nav>
+
+  <main class="dash-main">
+    <div class="dash-hero">
+      <div>
+        <h1 class="dash-title">My <span class="hero-gradient">Performance</span></h1>
+        <p class="dash-sub">Detailed analytics for all your exam submissions</p>
+      </div>
+    </div>
+
+    <!-- KPI Row -->
+    <div class="kpi-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
+      <div class="kpi-tile">
+        <div class="kpi-tile-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/></svg></div>
+        <div class="kpi-tile-body"><div class="kpi-tile-val" id="kpiTotal">0</div><div class="kpi-tile-label">Total Exams</div></div>
+      </div>
+      <div class="kpi-tile">
+        <div class="kpi-tile-icon cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/></svg></div>
+        <div class="kpi-tile-body"><div class="kpi-tile-val" id="kpiAvg">0%</div><div class="kpi-tile-label">Avg Score</div></div>
+      </div>
+      <div class="kpi-tile">
+        <div class="kpi-tile-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+        <div class="kpi-tile-body"><div class="kpi-tile-val" id="kpiPass">0%</div><div class="kpi-tile-label">Pass Rate</div></div>
+      </div>
+    </div>
+
+    <!-- Score trend chart -->
+    <div class="section-card" style="margin-bottom:20px">
+      <div class="section-card-header">
+        <div class="section-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+        <div><h2 style="margin-bottom:2px">Score Trend</h2><p class="section-sub">Your recent exam scores</p></div>
+      </div>
+      <div class="chart-wrap" style="height:200px;padding:16px 20px"><canvas id="trendChart"></canvas></div>
+    </div>
+
+    <!-- History table -->
+    <div class="section-card results-card">
+      <div class="results-header"><h3>Exam History</h3></div>
+      <div class="table-scroll">
+        <table class="results-table">
+          <thead><tr>
+            <th>Subject</th><th>Set</th><th>Score</th><th>Time</th><th>Status</th><th>Date</th>
+          </tr></thead>
+          <tbody id="histBody">
+            <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/auth.js"></script>
+  <script>
+  Auth.currentRole().then(function(u) {
+    if (!u || u.role !== 'student' || u.student_subtype !== 'institution_linked') {
+      window.location.href = u && u.role === 'student' ? '/dashboard' : '/login';
+    }
+  });
+  document.getElementById('logoutBtn').addEventListener('click', function(e) {
+    e.preventDefault();
+    fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+      .finally(function() { window.location.href = '/login'; });
+  });
+
+  function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  Chart.defaults.color = '#6868a0';
+  Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
+
+  fetch('/api/institution/student/performance', { credentials: 'include' })
+    .then(function(r) { return r.ok ? r.json() : { submissions: [], summary: {} }; })
+    .then(function(data) {
+      var subs = data.submissions || [];
+      var sm = data.summary || {};
+      document.getElementById('kpiTotal').textContent = sm.total_exams || 0;
+      document.getElementById('kpiAvg').textContent   = (sm.avg_score || 0) + '%';
+      document.getElementById('kpiPass').textContent  = (sm.pass_rate || 0) + '%';
+
+      var recent = subs.slice(0, 15).reverse();
+      if (recent.length) {
+        new Chart(document.getElementById('trendChart'), {
+          type: 'line',
+          data: {
+            labels: recent.map(function(s, i) { return 'E' + (i + 1); }),
+            datasets: [{ label: 'Score %', data: recent.map(function(s) { return Math.round(s.score_pct); }),
+              borderColor: '#a855f7', backgroundColor: 'rgba(168,85,247,0.08)',
+              tension: 0.35, fill: true, pointBackgroundColor: '#a855f7', borderWidth: 2 }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: { beginAtZero: true, max: 100, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6868a0' } },
+              x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6868a0' } }
+            }
+          }
+        });
+      }
+
+      var tbody = document.getElementById('histBody');
+      if (!subs.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No exam history yet</td></tr>';
+        return;
+      }
+      tbody.innerHTML = subs.map(function(s) {
+        var p = Math.round(s.score_pct);
+        var cls = p >= 70 ? 'score-high' : p >= 40 ? 'score-mid' : 'score-low';
+        var m = Math.floor(s.time_taken_sec / 60), sec = s.time_taken_sec % 60;
+        var date = s.submitted_at ? new Date(s.submitted_at).toLocaleDateString() : '—';
+        return '<tr>' +
+          '<td style="font-weight:600;color:var(--purple-l)">' + esc(s.subject || '—') + '</td>' +
+          '<td>' + esc(s.set_label || '—') + '</td>' +
+          '<td><span class="score-badge ' + cls + '">' + p + '%</span></td>' +
+          '<td style="color:var(--muted)">' + m + 'm ' + sec + 's</td>' +
+          '<td class="' + (s.pass_flag ? 'status-pass' : 'status-fail') + '">' + (s.pass_flag ? '✅ Pass' : '❌ Fail') + '</td>' +
+          '<td style="color:var(--muted2)">' + date + '</td>' +
+          '</tr>';
+      }).join('');
+    });
+  </script>
+</body>
+</html>

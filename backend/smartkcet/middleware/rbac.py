@@ -161,18 +161,47 @@ def require_student(
 def require_admin(
     payload: dict[str, Any] = Depends(require_authenticated),
 ) -> dict[str, Any]:
-    """Require an admin-role Session_Token.
+    """Require a platform_admin-role Session_Token.
 
     Raises
     ------
     HTTPException
         401 — propagated from :func:`require_authenticated`.
-        403 when the token's role is not ``"admin"`` (REQ-4.3).  No
+        403 when the token's role is not ``"platform_admin"`` (REQ-4.3).  No
         response body data beyond the generic "forbidden" envelope is
         returned, as required by the design truth table.
     """
 
-    if payload.get("role") != "admin":
+    if payload.get("role") != "platform_admin":
+        raise _forbidden()
+    return payload
+
+
+def require_platform_admin(
+    payload: dict[str, Any] = Depends(require_authenticated),
+) -> dict[str, Any]:
+    """Require a platform_admin-role Session_Token.
+
+    Alias for require_admin for clarity in new code.
+    """
+    if payload.get("role") != "platform_admin":
+        raise _forbidden()
+    return payload
+
+
+def require_institution_admin(
+    payload: dict[str, Any] = Depends(require_authenticated),
+) -> dict[str, Any]:
+    """Require an institution_admin-role Session_Token.
+
+    Raises
+    ------
+    HTTPException
+        401 — propagated from :func:`require_authenticated`.
+        403 when the token's role is not ``"institution_admin"``.
+    """
+
+    if payload.get("role") != "institution_admin":
         raise _forbidden()
     return payload
 
@@ -237,7 +266,8 @@ def current_user(request: Request, session: Session) -> Optional[User]:
     The lookup column depends on role:
 
     * ``role == 'student'`` → ``users.kcet_student_id == sub``
-    * ``role == 'admin'``   → ``users.email == sub``
+    * ``role == 'platform_admin'``   → ``users.email == sub``
+    * ``role == 'institution_admin'`` → ``users.email == sub``
 
     Returns ``None`` when the token is absent, invalid, revoked, or
     points at a user that no longer exists.
@@ -253,7 +283,7 @@ def current_user(request: Request, session: Session) -> Optional[User]:
 
     if role == "student":
         stmt = select(User).where(User.kcet_student_id == sub)
-    elif role == "admin":
+    elif role in ("platform_admin", "institution_admin"):
         stmt = select(User).where(User.email == sub)
     else:
         return None
@@ -261,10 +291,155 @@ def current_user(request: Request, session: Session) -> Optional[User]:
     return session.execute(stmt).scalar_one_or_none()
 
 
+def require_active_subscription(
+    payload: dict[str, Any] = Depends(require_authenticated),
+) -> dict[str, Any]:
+    """Require student with active subscription.
+
+    Raises
+    ------
+    HTTPException
+        401 — propagated from :func:`require_authenticated`.
+        403 when the student's subscription is not active (trial, active, or grace_period).
+    """
+
+    if payload.get("role") != "student":
+        raise _forbidden()
+    
+    subscription_status = payload.get("subscription_status")
+    if subscription_status not in ("trial", "active", "grace_period"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "subscription_required",
+                "message": "Active subscription required.",
+                "subscription_status": subscription_status,
+            },
+        )
+    
+    return payload
+
+
+def check_feature_access(
+    payload: dict[str, Any],
+    feature: str,
+    session: Session | None = None,
+) -> bool:
+    """Evaluate access control matrix for a specific feature.
+    
+    Implements the access control matrix defined in design.md, evaluating
+    role + subscription_status + subtype against feature requirements.
+    
+    **Requirements:** 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8, 12.9, 7.5, 7.6, 7.7, 7.8, 11.5
+    
+    Features:
+    - exam_access: Can start exams
+    - full_analytics: Can access full analytics (topic breakdowns, AI recommendations)
+    - basic_analytics: Can access basic analytics (score, pass/fail)
+    - leaderboard: Can view leaderboard rank
+    - question_management: Can manage question banks
+    - institution_management: Can manage institution settings
+    - platform_settings: Can access platform-wide settings
+    
+    Access rules:
+    - platform_admin: Full access to all features
+    - institution_admin: Access to question_management, institution_management (scoped to their institution)
+    - student (trial): Limited exam access (5 lifetime), basic_analytics only, no leaderboard
+    - student (active/grace_period): Unlimited exams, full_analytics, leaderboard
+    - student (expired/cancelled): No access
+    - dual subscription: Higher of two permission levels
+    
+    Args:
+        payload: Decoded JWT token payload
+        feature: Feature to check access for
+        session: Optional database session for dual subscription resolution
+        
+    Returns:
+        True if access is granted, False otherwise
+    """
+    role = payload.get("role")
+    
+    # Platform admin has full access to everything
+    if role == "platform_admin":
+        return True
+    
+    # Institution admin access
+    if role == "institution_admin":
+        if feature in ("question_management", "institution_management"):
+            return True
+        return False
+    
+    # Student access
+    if role == "student":
+        subscription_status = payload.get("subscription_status")
+        student_subtype = payload.get("student_subtype")
+        
+        # Handle dual subscription: higher of two permission levels (REQ-12.6)
+        # For MVP, dual subscription is treated as having Pro-level access
+        # In production, this would query both subscriptions and compare
+        if student_subtype == "dual":
+            # Treat dual as active for all permission checks
+            subscription_status = "active"
+        
+        # Exam access rules (REQ-12.3)
+        if feature == "exam_access":
+            # Trial: 5 lifetime attempts (enforced by usage tracker)
+            # Active/grace_period: unlimited
+            # Institution: plan limits (enforced by usage tracker)
+            if subscription_status in ("trial", "active", "grace_period"):
+                return True
+            return False
+        
+        # Analytics access rules (REQ-12.4)
+        if feature == "basic_analytics":
+            # All active subscriptions get basic analytics
+            if subscription_status in ("trial", "active", "grace_period"):
+                return True
+            return False
+        
+        if feature == "full_analytics":
+            # Only Pro (active/grace_period) gets full analytics
+            # Trial gets basic only
+            if subscription_status in ("active", "grace_period"):
+                return True
+            return False
+        
+        # Leaderboard access rules (REQ-12.5)
+        if feature == "leaderboard":
+            # Trial: hidden
+            # Pro: full global
+            # Institution: scoped to institution
+            if subscription_status in ("active", "grace_period"):
+                return True
+            return False
+        
+        # Question bank access (REQ-12.7)
+        if feature == "question_management":
+            # Only platform_admin and institution_admin
+            return False
+        
+        # Institution management (REQ-12.7)
+        if feature == "institution_management":
+            # Only platform_admin and institution_admin
+            return False
+        
+        # Platform settings (REQ-11.5)
+        if feature == "platform_settings":
+            # Only platform_admin
+            return False
+    
+    # Default: deny access
+    return False
+
+
 __all__ = [
     "require_authenticated",
     "require_student",
     "require_admin",
+    "require_platform_admin",
+    "require_institution_admin",
+    "require_active_subscription",
+    "check_feature_access",
     "resolve_payload",
     "current_user_id",
     "current_user",

@@ -20,8 +20,245 @@ Chart.defaults.color = CHART_DEFAULTS.color;
 Chart.defaults.font.family = CHART_DEFAULTS.font.family;
 Chart.defaults.font.size = CHART_DEFAULTS.font.size;
 
+// ── Auto-subscription prompt for personal students ────────────────────────────
+/**
+ * PERSONAL STUDENT SUBSCRIPTION ONBOARDING
+ * 
+ * Auto-opens subscription modal for personal students (direct_subscriber) who have NO active subscription.
+ * 
+ * WHO SEES THIS:
+ * ✅ role = student AND student_subtype = direct_subscriber AND no active subscription
+ * 
+ * WHO NEVER SEES THIS:
+ * ❌ Institution students (student_subtype = institution_linked)
+ * ❌ Personal students with active subscription (free/trial/monthly/yearly)
+ * ❌ Admins
+ * 
+ * BEHAVIOR:
+ * - Modal opens automatically after 500ms delay (allows dashboard to render first)
+ * - No user click required
+ * - Clean production UX (Netflix/Spotify style)
+ */
+async function _checkAndPromptSubscription() {
+  console.log('='.repeat(80));
+  console.log('[subscription-onboarding] ========== SUBSCRIPTION CHECK START ==========');
+  console.log('[subscription-onboarding] Timestamp:', new Date().toISOString());
+  console.log('='.repeat(80));
+  
+  try {
+    // STEP 1: Verify required modules are loaded
+    console.log('[subscription-onboarding] STEP 1: Checking module availability...');
+    console.log('[subscription-onboarding]   → typeof Subscription:', typeof Subscription);
+    console.log('[subscription-onboarding]   → Subscription.getStatus:', typeof Subscription !== 'undefined' ? typeof Subscription.getStatus : 'N/A');
+    console.log('[subscription-onboarding]   → typeof SubscriptionModal:', typeof SubscriptionModal);
+    console.log('[subscription-onboarding]   → SubscriptionModal.show:', typeof SubscriptionModal !== 'undefined' ? typeof SubscriptionModal.show : 'N/A');
+    
+    if (typeof Subscription === 'undefined' || typeof Subscription.getStatus !== 'function') {
+      console.error('[subscription-onboarding] ❌ CRITICAL: Subscription module not loaded!');
+      console.error('[subscription-onboarding]    This means subscription.js is not included in the page');
+      return;
+    }
+    if (typeof SubscriptionModal === 'undefined' || typeof SubscriptionModal.show !== 'function') {
+      console.error('[subscription-onboarding] ❌ CRITICAL: SubscriptionModal module not loaded!');
+      console.error('[subscription-onboarding]    This means subscription-modal.js is not included in the page');
+      return;
+    }
+    console.log('[subscription-onboarding] STEP 1: ✅ All modules available');
+
+    // STEP 2: Fetch fresh subscription status (BYPASS CACHE after payment!)
+    console.log('[subscription-onboarding] STEP 2: Fetching subscription status from API...');
+    console.log('[subscription-onboarding]   → Calling Subscription.getStatus(true) to bypass cache');
+    const sub = await Subscription.getStatus(true);  // ✅ FORCE REFRESH to bypass cache
+    
+    console.log('[SUB FIX] ========== SUBSCRIPTION DATA ==========');
+    console.log('[SUB FIX] subscription status:', sub);
+    console.log('[SUB FIX] is_active:', sub?.is_active);
+    console.log('[SUB FIX] status:', sub?.status);
+    console.log('[SUB FIX] has_subscription:', sub?.has_subscription);
+    console.log('[SUB FIX] plan_type:', sub?.plan_type);
+    console.log('[SUB FIX] plan_name:', sub?.plan_name);
+    console.log('[SUB FIX] ==============================================');
+    
+    console.log('[subscription-onboarding] STEP 2: Subscription data received:');
+    console.log('[subscription-onboarding]   → Full response:', JSON.stringify(sub, null, 2));
+    console.log('[subscription-onboarding]   → is_active:', sub ? sub.is_active : 'NULL RESPONSE');
+    console.log('[subscription-onboarding]   → status:', sub ? sub.status : 'NULL RESPONSE');
+    console.log('[subscription-onboarding]   → plan_type:', sub ? sub.plan_type : 'NULL RESPONSE');
+    console.log('[subscription-onboarding]   → plan_name:', sub ? sub.plan_name : 'NULL RESPONSE');
+
+    // STEP 3: Apply gates - Check if user has VALID subscription
+    console.log('[subscription-onboarding] STEP 3: Applying gate logic...');
+    
+    // Check if subscription banner is visible (extra safety gate)
+    const banner = document.querySelector('.subscription-banner');
+    if (banner && banner.style.display !== 'none' && !banner.classList.contains('hidden')) {
+      console.log('[subscription-onboarding] GATE 0: ✅ Subscription banner visible → MODAL BLOCKED');
+      console.log('[subscription-onboarding] User subscription UI is showing - modal will NOT show');
+      return;
+    }
+    
+    // Comprehensive validation: has_subscription flag OR active status check
+    const hasValidSubscription = (
+      // Check 1: has_subscription flag (if provided)
+      (sub && sub.has_subscription === true) ||
+      // Check 2: is_active flag (primary indicator)
+      (sub && sub.is_active === true) ||
+      // Check 3: Active status values
+      (sub && ['trial', 'active', 'trialing', 'grace_period'].includes(sub.status))
+    );
+    
+    if (hasValidSubscription) {
+      console.log('[subscription-onboarding] GATE 1: ✅ VALID SUBSCRIPTION DETECTED → MODAL BLOCKED');
+      console.log('[subscription-onboarding]   → has_subscription:', sub?.has_subscription);
+      console.log('[subscription-onboarding]   → is_active:', sub?.is_active);
+      console.log('[subscription-onboarding]   → status:', sub?.status);
+      console.log('[subscription-onboarding] User has active/valid subscription - modal will NOT show');
+      return;
+    }
+    console.log('[subscription-onboarding] GATE 1: ❌ No valid subscription → PASSED');
+
+    // ALL GATES PASSED - User needs subscription
+    console.log('='.repeat(80));
+    console.log('[subscription-onboarding] 🚀 ALL GATES PASSED - USER NEEDS SUBSCRIPTION');
+    console.log('[subscription-onboarding] 🚀 MODAL WILL OPEN IN 500ms');
+    console.log('='.repeat(80));
+    
+    console.log('[SUB] OPENING MODAL');
+    setTimeout(function() {
+      console.log('[subscription-onboarding] STEP 4: Opening modal NOW...');
+      console.log('[subscription-onboarding]   → Calling SubscriptionModal.show()');
+      
+      // Update modal heading for onboarding context (personalized messaging)
+      const titleEl = document.getElementById('modalTitle');
+      const subtitleEl = document.getElementById('modalSubtitle');
+      if (titleEl) {
+        titleEl.innerHTML = 'Choose Your <span class="grad">Plan</span>';
+      }
+      if (subtitleEl) {
+        subtitleEl.textContent = 'Select the plan that best fits your exam preparation needs';
+      }
+      
+      // Show the modal (SubscriptionModal handles all display logic)
+      try {
+        SubscriptionModal.show();
+        console.log('[subscription-onboarding] ✅ SubscriptionModal.show() called successfully');
+        console.log('[subscription-onboarding] ✅ Modal should now be visible on screen');
+        
+        // Verify modal is actually showing
+        setTimeout(() => {
+          const modalEl = document.getElementById('subscriptionModal');
+          if (modalEl) {
+            const isVisible = modalEl.style.display !== 'none' && modalEl.classList.contains('open');
+            console.log('[subscription-onboarding] Modal visibility check:', isVisible ? '✅ VISIBLE' : '❌ NOT VISIBLE');
+            console.log('[subscription-onboarding]   → display style:', modalEl.style.display);
+            console.log('[subscription-onboarding]   → has .open class:', modalEl.classList.contains('open'));
+          } else {
+            console.error('[subscription-onboarding] ❌ #subscriptionModal element NOT FOUND in DOM!');
+          }
+        }, 100);
+      } catch (err) {
+        console.error('[subscription-onboarding] ❌ Error calling SubscriptionModal.show():', err);
+        console.error('[subscription-onboarding] Stack trace:', err.stack);
+      }
+    }, 500);  // 500ms delay for smooth UX
+
+  } catch (error) {
+    console.error('[subscription-onboarding] ❌ FATAL ERROR during subscription check:', error);
+    console.error('[subscription-onboarding] Stack trace:', error.stack);
+  }
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 async function initDashboard() {
+  console.log('='.repeat(80));
+  console.log('[dashboard] ==================== DASHBOARD INIT START ====================');
+  console.log('[dashboard] Timestamp:', new Date().toISOString());
+  console.log('='.repeat(80));
+  
+  // Initialize the persistent subscription banner (REQ-4.1, 4.2)
+  if (typeof SubscriptionBanner !== 'undefined' && SubscriptionBanner.init) {
+    try { SubscriptionBanner.init(); } catch (e) { console.error('Banner init failed:', e); }
+  }
+
+  // STEP 1: Detect role and subtype
+  console.log('[dashboard] STEP 1: Fetching user info from Auth.currentRole()...');
+  let currentUserRole = null;
+  let currentUserSubtype = null;
+  let userInfo = null;
+  try {
+    if (typeof Auth !== 'undefined' && Auth.currentRole) {
+      userInfo = await Auth.currentRole();
+      currentUserRole = userInfo && userInfo.role;
+      currentUserSubtype = userInfo && userInfo.student_subtype;
+      
+      console.log('[dashboard] STEP 1: User info received:');
+      console.log('[dashboard]   → Full response:', JSON.stringify(userInfo, null, 2));
+      console.log('[dashboard]   → role:', currentUserRole);
+      console.log('[dashboard]   → student_subtype:', currentUserSubtype);
+      console.log('[dashboard]   → institution_id:', userInfo ? userInfo.institution_id : 'N/A');
+    } else {
+      console.error('[dashboard] STEP 1: Auth module NOT available!');
+      console.log('[dashboard]   → typeof Auth:', typeof Auth);
+      console.log('[dashboard]   → Auth.currentRole:', typeof Auth !== 'undefined' ? typeof Auth.currentRole : 'N/A');
+    }
+  } catch (e) { 
+    console.error('[dashboard] STEP 1: Error fetching user info:', e);
+    console.error('[dashboard] Stack trace:', e.stack);
+  }
+
+  console.log('[dashboard] STEP 2: Checking user type...');
+  console.log('[dashboard]   → Is student?', currentUserRole === 'student');
+  console.log('[dashboard]   → Is direct_subscriber?', currentUserSubtype === 'direct_subscriber');
+  console.log('[dashboard]   → Is institution_linked?', currentUserSubtype === 'institution_linked');
+  console.log('[dashboard]   → Is admin?', currentUserRole === 'admin' || currentUserRole === 'platform_admin');
+
+  // Hard guard: institution students should never be on this page
+  if (currentUserRole === 'student' && currentUserSubtype === 'institution_linked') {
+    console.log('[dashboard.js] Institution student detected — redirecting to /student/institution/dashboard');
+    window.location.replace('/student/institution/dashboard');
+    return;
+  }
+
+  const isAdmin = currentUserRole === 'admin' || currentUserRole === 'platform_admin';
+
+  if (isAdmin) {
+    document.querySelectorAll('.navbar a[href="/exam"]').forEach(function(el) {
+      el.style.display = 'none';
+    });
+    document.querySelectorAll('.navbar a[href="/subscription"]').forEach(function(el) {
+      el.style.display = 'none';
+    });
+    const emptyExamBtn = document.getElementById('emptyStateTakeExamBtn');
+    if (emptyExamBtn) emptyExamBtn.style.display = 'none';
+  }
+
+  // PERSONAL STUDENT SUBSCRIPTION ONBOARDING (direct_subscriber ONLY)
+  // Auto-open subscription modal if:
+  // 1. role = student
+  // 2. student_subtype = direct_subscriber (NOT institution_linked)
+  // 3. No active subscription exists
+  //
+  // Institution students (institution_linked) are NEVER shown this modal.
+  console.log('[SUB] dashboard loaded');
+  console.log('[SUB] me:', userInfo);
+  console.log('[SUB] subtype:', currentUserSubtype);
+  console.log('[SUB] checking subscription');
+  
+  if (currentUserRole === 'student' && currentUserSubtype === 'direct_subscriber') {
+    console.log('[dashboard] ✅ Personal student (direct_subscriber) detected');
+    console.log('[dashboard] → Initiating subscription check...');
+    _checkAndPromptSubscription();
+  } else if (currentUserRole === 'student' && currentUserSubtype === 'institution_linked') {
+    console.log('[dashboard] ℹ️ Institution student detected - subscription modal will NOT be shown');
+  } else if (currentUserRole === 'student' && !currentUserSubtype) {
+    console.log('[dashboard] ⚠️ Student role but no subtype - defaulting to NO modal');
+  }
+
+  // Wire up the deferred subscription selection flow for "Take Exam" CTAs
+  if (!isAdmin) {
+    setupTakeExamInterceptors();
+  }
+
   document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
 
   // Hide the student filter (admin-only)
@@ -55,14 +292,16 @@ async function initDashboard() {
     }
   } catch (e) {
     console.error('Dashboard init error:', e);
-    document.getElementById('emptyState').style.display = 'block';
-    document.getElementById('dashContent').style.display = 'none';
+    renderEmptyDashboard();
     return;
   }
 
   if (allSubmissions.length === 0) {
-    document.getElementById('emptyState').style.display = 'block';
-    document.getElementById('dashContent').style.display = 'none';
+    // REQ-1.2 — for students without exam data (including those without an
+    // active subscription) we still render the full dashboard UI: KPI tiles,
+    // chart placeholders, and the exam history table. The empty-state hint
+    // sits above them so the user understands why everything reads zero.
+    renderEmptyDashboard();
     return;
   }
 
@@ -74,6 +313,159 @@ async function initDashboard() {
 
   // Migrate any pre-existing localStorage submission data (REQ-14.1, REQ-14.4)
   migrateLegacySubmissions();
+}
+
+/**
+ * Render the dashboard skeleton with empty / zero values when the user has
+ * no submission data yet (REQ-1.2). The empty-state hint remains visible
+ * alongside so the page reads as "no data yet" rather than "broken".
+ */
+function renderEmptyDashboard() {
+  const emptyEl = document.getElementById('emptyState');
+  const dashEl = document.getElementById('dashContent');
+  if (emptyEl) emptyEl.style.display = 'block';
+  // Keep the dashboard skeleton visible (KPIs, charts, table placeholders)
+  // so REQ-1.2 is satisfied even when the user has no exam data yet.
+  if (dashEl) dashEl.style.display = 'block';
+
+  // Reset KPI tiles to a clear "no data" state.
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+  setText('kpiStudents', '0');
+  setText('kpiSubmissions', '0');
+  setText('kpiAvgScore', '0%');
+  setText('kpiPassRate', '0%');
+  setText('kpiAvgTime', '0m');
+  setText('kpiRankValue', '—');
+  setText('kpiRankHint', 'Complete an exam to enter the leaderboard');
+
+  // Render empty placeholders into the AI zones and tables.
+  const emptyZone = '<li class="zone-item"><span class="zone-item-name" style="color:var(--muted)">No data yet</span></li>';
+  ['strongItems', 'improveItems', 'weakItems'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = emptyZone;
+  });
+  setText('strongCount', 0);
+  setText('improveCount', 0);
+  setText('weakCount', 0);
+  setText('aiAnalysisFor', 'No submissions to analyse yet');
+  const recBox = document.getElementById('aiRecommendationText');
+  if (recBox) {
+    recBox.textContent = 'Take your first exam to receive personalised AI recommendations.';
+  }
+
+  const rankingBody = document.getElementById('rankingBody');
+  if (rankingBody) {
+    rankingBody.innerHTML =
+      '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No ranking data available yet</td></tr>';
+  }
+  const resultsBody = document.getElementById('resultsBody');
+  if (resultsBody) {
+    resultsBody.innerHTML =
+      '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">No exam history yet — your submissions will appear here.</td></tr>';
+  }
+  setText('tableFooter', 'Showing 0 of 0 submissions');
+
+  // Tear down any leftover charts and leave the canvases blank.
+  destroyCharts();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DEFERRED SUBSCRIPTION SELECTION FLOW (Task 4.2 — REQ-1.1, 1.2, 1.3, 1.8)
+// ═══════════════════════════════════════════════════════════════════════════
+// The dashboard is reachable without an active subscription. When the user
+// clicks any "Take Exam" CTA on the dashboard we first check their
+// subscription status and either:
+//   • open SubscriptionModal — for users with no usable subscription
+//     (no record / expired / cancelled), per REQ-1.3, OR
+//   • allow navigation to /exam — for users with active access (trial /
+//     active / overdue grace period / institution-linked), per REQ-1.8.
+// The exam page itself performs the authoritative check via
+// /api/exam/check-access (Task 4.1), so this client-side gate is purely a UX
+// optimisation that surfaces the plan-selection modal before the student
+// lands on the exam entry form.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Wire click handlers on every "Take Exam" surface — the empty-state CTA on
+ * the dashboard plus the navbar Exam link — so we can intercept navigation
+ * and route the student through the subscription modal when appropriate.
+ *
+ * Idempotent: safe to call multiple times. Uses a `data-take-exam-bound`
+ * marker so refreshes don't double-bind handlers.
+ */
+function setupTakeExamInterceptors() {
+  if (typeof document === 'undefined') return;
+
+  const targets = [];
+
+  // Empty-state CTA (rendered in dashboard.html with data-take-exam).
+  document.querySelectorAll('[data-take-exam]').forEach((el) => targets.push(el));
+
+  // Navbar Exam link — `/exam` href on the dashboard navbar.
+  document.querySelectorAll('.navbar a[href="/exam"]').forEach((el) => targets.push(el));
+
+  targets.forEach((el) => {
+    if (!el || el.dataset.takeExamBound === 'true') return;
+    el.dataset.takeExamBound = 'true';
+    el.addEventListener('click', handleTakeExamClick);
+  });
+}
+
+/**
+ * Intercept a "Take Exam" click. If the user has no usable subscription we
+ * surface SubscriptionModal in-place (REQ-1.3); otherwise we let the click
+ * proceed to /exam normally (REQ-1.8).
+ *
+ * If anything goes wrong — modal not loaded, network failure, etc. — we
+ * fall back to letting the navigation happen so the user is never stranded
+ * on the dashboard. The exam page will still enforce access via
+ * /api/exam/check-access.
+ */
+async function handleTakeExamClick(evt) {
+  // Allow modifier-clicks (open in new tab, etc.) to bypass the gate.
+  if (evt.metaKey || evt.ctrlKey || evt.shiftKey || evt.altKey || evt.button === 1) {
+    return;
+  }
+
+  // If the modal module isn't on the page we can't gate the click — let it
+  // proceed so the exam page handles the case.
+  if (typeof SubscriptionModal === 'undefined' || typeof Subscription === 'undefined') {
+    return;
+  }
+
+  let subscription = null;
+  try {
+    subscription = await Subscription.getStatus();
+  } catch (e) {
+    // Network/auth error — let the click through; exam page will handle it.
+    console.warn('Take Exam gate: subscription lookup failed, allowing navigation.', e);
+    return;
+  }
+
+  if (!SubscriptionModal.shouldShow(subscription)) {
+    // Active / trial / institution / overdue grace — proceed to /exam (REQ-1.8).
+    return;
+  }
+
+  // No usable subscription — open the modal and stop the navigation (REQ-1.3).
+  evt.preventDefault();
+  evt.stopPropagation();
+  try {
+    SubscriptionModal.show();
+  } catch (e) {
+    // If show() throws for any reason, fall back to navigating so the user
+    // can still reach the exam page (which has its own gating).
+    console.error('Take Exam gate: failed to show subscription modal, navigating instead.', e);
+    const href = evt.currentTarget && evt.currentTarget.getAttribute
+      ? evt.currentTarget.getAttribute('href')
+      : null;
+    if (href) {
+      window.location.href = href;
+    }
+  }
 }
 
 // ── Subject Filter ───────────────────────────────────────────────────────────
