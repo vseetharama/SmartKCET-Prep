@@ -27,7 +27,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db.models import Exam, ExamSet, ExamSetQuestion, Question, Subject
-from ..db.session import get_session
+from ..db.session import get_async_session as get_session
 from ..middleware.rbac import require_student
 from ..subscription.dependencies import get_access_control, require_exam_access
 

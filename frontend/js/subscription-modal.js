@@ -437,12 +437,25 @@ var SubscriptionModal = (function () {
 
   /**
    * Activate Free plan (instant activation, no payment).
+   * Allowed only when user has no active subscription (new user or
+   * expired/cancelled). Blocked with a friendly message otherwise.
    */
   async function selectFree() {
     if (_isBusy) return;
+    _isBusy = true;
     _lastAction = { type: 'free' };
     _clearError();
     _setLoading(true);
+
+    console.log('[free-plan] activating free plan');
+
+    // Log current subscription state for debugging
+    if (typeof Subscription !== 'undefined' && Subscription.getStatus) {
+      try {
+        var currentSub = await Subscription.getStatus();
+        console.log('[free-plan] current subscription:', currentSub);
+      } catch (e) { /* non-fatal */ }
+    }
 
     try {
       var res = await fetch('/api/subscription/activate-free', {
@@ -452,18 +465,39 @@ var SubscriptionModal = (function () {
       });
 
       var data = await res.json();
+      console.log('[free-plan] response:', data);
 
-      if (res.ok && data.status === 'active') {
+      if (res.ok) {
+        // SubscriptionResponse has a top-level `status` field ('active', etc.)
+        _isBusy = false;
         _setLoading(false);
         _onActivationSuccess('✅ Free plan activated! Redirecting to dashboard...');
-      } else {
-        _setLoading(false);
-        _showError(data.message || 'Failed to activate free plan. Please try again.');
+        return;
       }
+
+      // 400 with subscription_active → user already has an active plan
+      if (res.status === 400) {
+        var msg = (data && data.detail && data.detail.message)
+          || (data && data.message)
+          || 'Current subscription active. Free plan available after expiry.';
+        _setLoading(false);
+        _isBusy = false;
+        _showError(msg);
+        return;
+      }
+
+      _setLoading(false);
+      _isBusy = false;
+      _showError(
+        (data && data.detail && data.detail.message)
+        || (data && data.message)
+        || 'Failed to activate free plan. Please try again.'
+      );
     } catch (err) {
       _setLoading(false);
+      _isBusy = false;
       _showError('Network error. Please check your connection and try again.');
-      console.error('Free plan activation error:', err);
+      console.error('[free-plan] Free plan activation error:', err);
     }
   }
 

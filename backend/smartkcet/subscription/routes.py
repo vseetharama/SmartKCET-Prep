@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from ..db.session import get_session
+from ..db.session import get_async_session as get_session
 from ..middleware.rbac import current_user, require_authenticated
 from .models import (
     BillingPeriod,
@@ -146,26 +146,27 @@ async def activate_free_plan(
     db: Session = Depends(get_session),
 ):
     """Activate Free plan (₹0) for a personal student.
-    
-    This endpoint provides instant activation of the free tier subscription
-    without any payment. The free plan provides limited access:
-    - 3-5 mock tests
-    - Limited question bank access
-    - Basic score analytics
-    
-    Idempotent: returns existing active subscription if present.
-    
+
+    Business rules:
+    - Allowed only when user has NO active subscription (status null, expired,
+      or cancelled).
+    - Blocked when user already has an active subscription with status in
+      ['trial', 'active', 'trialing', 'grace_period'].  Returns 400 in that case.
+    - The free plan provides limited access: 3–5 mock tests, limited question
+      bank, and basic score analytics.
+
     Args:
         request: FastAPI request object
         payload: JWT payload from authentication middleware
         db: Database session
-        
+
     Returns:
-        Created or existing subscription details
-        
+        Created subscription details (HTTP 201)
+
     Raises:
-        HTTPException: 
-            - 401 if user not found
+        HTTPException:
+            - 400 if user already has an active subscription
+            - 401 if user not found / unauthenticated
             - 404 if Free plan not configured in database
             - 503 if database error occurs (retry-friendly)
     """
@@ -175,26 +176,44 @@ async def activate_free_plan(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": "auth_required", "message": "User not found"},
         )
-    
+
+    # ── Business rule: block if an active subscription already exists ──────
+    from ..db.subscription_models import Subscription as SubscriptionModel
+    ACTIVE_STATUSES = ["trial", "active", "trialing", "grace_period"]
+
+    existing_active = (
+        db.query(SubscriptionModel)
+        .filter(
+            SubscriptionModel.user_id == user.id,
+            SubscriptionModel.status.in_(ACTIVE_STATUSES),
+        )
+        .first()
+    )
+
+    if existing_active:
+        logger.info(
+            f"Free plan blocked for user {user.id} — active subscription "
+            f"exists (status={existing_active.status})"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "subscription_active",
+                "message": (
+                    "Current subscription active. "
+                    "Free plan available after expiry."
+                ),
+            },
+        )
+
     service = SubscriptionService(db)
-    
+
     try:
+        logger.info("[activate-free] endpoint hit — activating free plan for user %s", user.id)
         subscription = service.activate_free(user.id)
         logger.info(f"Activated Free plan for user {user.id}")
-        
-        return SubscriptionResponse(
-            id=str(subscription.id),
-            user_id=str(subscription.user_id) if subscription.user_id else None,
-            plan_type="individual",
-            plan_name="Free",
-            billing_period=None,
-            status=subscription.status,
-            start_date=subscription.start_date.isoformat(),
-            next_renewal_date=None,
-            trial_attempts_remaining=None,
-            message="Free plan activated successfully",
-        )
-    
+        return SubscriptionResponse.model_validate(subscription)
+
     except ValueError as e:
         msg = str(e)
         logger.warning(f"Free plan activation validation error for user {user.id}: {msg}")
@@ -205,7 +224,7 @@ async def activate_free_plan(
                 "message": msg,
             },
         ) from e
-    
+
     except SQLAlchemyError as e:
         logger.error(f"Database error during free plan activation: {e}")
         db.rollback()

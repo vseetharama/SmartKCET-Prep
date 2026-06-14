@@ -224,6 +224,9 @@
     // Action buttons — visibility driven by plan type & status
     _renderActionButtons(sub);
 
+    // ── Premium UI: set plan theme + inject right-column cards ──────────
+    _renderPremiumUI(sub);
+
     // Billing history visibility: only Pro users (active or expired) see it.
     // REQ-8.10 — Free Trial students never see this section.
     var billingSection = $('billingHistorySection');
@@ -243,6 +246,169 @@
     hide(IDS.noSub);
     show(IDS.content);
   }
+
+  // ── Premium UI helpers ──────────────────────────────────────────────────
+
+  /**
+   * Determine a short plan key used for data-plan theming and feature lists.
+   * Returns: 'free' | 'trial' | 'monthly' | 'yearly' | 'institution' | ''
+   */
+  function _planKey(sub) {
+    if (!sub) return '';
+    var name = (sub.plan_name || '').toLowerCase();
+    if (name.indexOf('free') !== -1) return 'free';
+    if (name.indexOf('trial') !== -1) return 'trial';
+    if (name.indexOf('yearly') !== -1 || name.indexOf('annual') !== -1) return 'yearly';
+    if (name.indexOf('monthly') !== -1) return 'monthly';
+    if (name.indexOf('weekly') !== -1) return 'trial'; // weekly pro → trial-style amber
+    var pt = sub.plan_type || '';
+    if (pt === 'institution') return 'institution';
+    if (sub.is_trial) return 'trial';
+    return 'monthly'; // fallback for unknown paid plans
+  }
+
+  /**
+   * Build feature list HTML using the new sf-* CSS classes.
+   */
+  function _featureListHTML(planKey) {
+    var features = {
+      free: {
+        on:  ['3–5 mock tests', 'Limited question bank', 'Basic score analytics'],
+        off: ['Unlimited mock tests', 'AI recommendations', 'Weak-topic analysis', 'Premium KCET questions', 'Advanced reports'],
+      },
+      trial: {
+        on:  ['Unlimited mock tests', 'KCET premium question bank', 'Topic-wise analytics', 'AI recommendations', 'Weak-topic analysis', 'Performance reports'],
+        off: [],
+      },
+      monthly: {
+        on:  ['Unlimited mock tests', 'Full topic analytics', 'AI recommendations', 'Weak-topic analysis', 'Performance reports', 'Leaderboard rankings'],
+        off: [],
+      },
+      yearly: {
+        on:  ['Everything in Pro Monthly', '12 months full access', 'Unlimited mock tests', 'AI recommendations', 'Advanced reports', 'Priority feature access'],
+        off: [],
+      },
+      institution: {
+        on:  ['Unlimited mock tests', 'Institution question bank', 'Topic-wise analytics', 'Weekly/monthly quotas'],
+        off: [],
+      },
+    };
+
+    var set = features[planKey] || features['monthly'];
+    var html = '<ul class="sf-list">';
+    set.on.forEach(function(f) {
+      html += '<li class="sf-item sf-on"><span class="sf-dot"></span><span>' + _esc(f) + '</span></li>';
+    });
+    set.off.forEach(function(f) {
+      html += '<li class="sf-item sf-off"><span class="sf-dot"></span><span>' + _esc(f) + '</span></li>';
+    });
+    html += '</ul>';
+    return html;
+  }
+
+  /**
+   * Build the CTA card HTML using the new cta-* CSS classes.
+   */
+  function _ctaHTML(planKey, sub) {
+    var status = _planStatus(sub);
+    var isActive = status === 'trial' || status === 'active' || status === 'overdue' || status === 'grace_period';
+
+    if (!isActive) {
+      return '<div class="sub-cta-card">'
+        + '<div class="sub-cta-inner">'
+        + '<span class="cta-emoji">🔄</span>'
+        + '<p class="cta-title">Reactivate your access</p>'
+        + '<p class="cta-body">Choose a plan to continue exam practice and track your progress.</p>'
+        + '<a href="/pricing" class="cta-btn cta-upgrade">View Plans →</a>'
+        + '</div></div>';
+    }
+
+    if (planKey === 'free') {
+      return '<div class="sub-cta-card">'
+        + '<div class="sub-cta-inner">'
+        + '<span class="cta-emoji">⚡</span>'
+        + '<p class="cta-title">Unlock full access</p>'
+        + '<p class="cta-body">Upgrade for unlimited mock tests, AI recommendations, and detailed analytics.</p>'
+        + '<a href="/pricing" class="cta-btn cta-upgrade">Upgrade to Pro →</a>'
+        + '</div></div>';
+    }
+
+    if (planKey === 'trial') {
+      var renewal = sub.next_renewal_date ? 'Renews ' + _formatDate(sub.next_renewal_date) + '.' : '';
+      return '<div class="sub-cta-card">'
+        + '<div class="sub-cta-inner">'
+        + '<span class="cta-emoji">⏱</span>'
+        + '<p class="cta-title">Trial access active</p>'
+        + '<p class="cta-body">You\'re on full premium access' + (renewal ? '. ' + renewal : '') + ' Switch to a recurring plan to keep access.</p>'
+        + '<a href="/pricing" class="cta-btn cta-upgrade">Upgrade to Monthly / Yearly →</a>'
+        + '</div></div>';
+    }
+
+    if (planKey === 'monthly') {
+      return '<div class="sub-cta-card">'
+        + '<div class="sub-cta-inner">'
+        + '<span class="cta-emoji">💡</span>'
+        + '<p class="cta-title">Save with yearly</p>'
+        + '<p class="cta-body">Switch to an annual plan and save over ₹1,000 compared to monthly billing.</p>'
+        + '<a href="/pricing" class="cta-btn cta-yearly">Switch to Yearly →</a>'
+        + '</div></div>';
+    }
+
+    if (planKey === 'yearly') {
+      return '<div class="sub-cta-card">'
+        + '<div class="sub-cta-inner">'
+        + '<span class="cta-emoji">🏆</span>'
+        + '<p class="cta-title">Premium member</p>'
+        + '<p class="cta-body">You have full access to all SmartKCET Prep features. Keep practising!</p>'
+        + '<a href="/exam" class="cta-btn cta-member">Take an Exam →</a>'
+        + '</div></div>';
+    }
+
+    return ''; // institution / unknown
+  }
+
+  function _esc(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  /**
+   * Set plan-specific data attribute and inject features + CTA cards.
+   * Writes only to #subRightCol — never touches any existing DOM nodes.
+   */
+  function _renderPremiumUI(sub) {
+    var content = $('subscriptionContent');
+    if (!content) return;
+
+    var planKey = _planKey(sub);
+
+    // data-plan drives CSS theming (border glow, name gradient, strip colour)
+    if (planKey) {
+      content.setAttribute('data-plan', planKey);
+    } else {
+      content.removeAttribute('data-plan');
+    }
+
+    var rightCol = $('subRightCol');
+    if (!rightCol) return;
+
+    var checkSVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+
+    var featuresHTML = ''
+      + '<div class="sub-features-card" aria-label="Plan features">'
+      +   '<div class="sfcard-header">'
+      +     '<div class="sfcard-icon" aria-hidden="true">' + checkSVG + '</div>'
+      +     '<div>'
+      +       '<h3>Plan Features</h3>'
+      +       '<p>What\'s included in your plan</p>'
+      +     '</div>'
+      +   '</div>'
+      +   '<div class="sfcard-body">' + _featureListHTML(planKey) + '</div>'
+      + '</div>';
+
+    rightCol.innerHTML = featuresHTML + _ctaHTML(planKey, sub);
+  }
+
+  // ── End Premium UI helpers ───────────────────────────────────────────────
 
   function _renderActionButtons(sub) {
     var status = _planStatus(sub);

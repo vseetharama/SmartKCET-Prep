@@ -14,7 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..db.session import get_session
+from ..db.session import get_async_session as get_session
 from ..middleware.rbac import require_platform_admin
 from .platform_admin_models import (
     AdminLoginRequest,

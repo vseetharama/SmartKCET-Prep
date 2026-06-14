@@ -53,7 +53,7 @@ from ..db.models import (
     Submission,
     User,
 )
-from ..db.session import get_session
+from ..db.session import get_async_session as get_session
 from ..middleware.rbac import current_user, require_student
 from ..submissions.scoring import score_submission
 

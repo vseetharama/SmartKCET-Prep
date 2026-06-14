@@ -207,9 +207,8 @@ async def shutdown_scheduler():
 
 
 @app.get("/api/health", tags=["health"])
-def api_health() -> dict[str, str]:
+async def api_health() -> dict[str, str]:
     """Public health probe.  REQ-13/14 — used by uptime checks; no auth."""
-
     return {"status": "ok"}
 
 

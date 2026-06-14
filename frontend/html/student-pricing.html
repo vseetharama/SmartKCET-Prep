@@ -255,9 +255,33 @@
       grid.innerHTML = sorted.map(function(plan) {
         var m = META[plan.name] || { tagline:'', features:[], cta:'Subscribe', ctaType:'outline', featured:false };
 
-        var isCurrent = currentSub && currentSub.status === 'active' &&
-          ((plan.billing_period === (currentSub.billing_period || '') ||
-            (plan.name === 'Pro Monthly' && currentSub.status === 'active' && !currentSub.is_trial)));
+        // DEBUG: log subscription state when evaluating each plan card
+        console.log('[subscription-page] active subscription:', currentSub);
+        console.log('[subscription-page] evaluating plan:', plan.name);
+
+        // A plan is the "current plan" only when the subscription's exact plan_name
+        // matches this card's name AND the subscription grants active access.
+        // Using plan_name (not just billing_period or is_active alone) ensures
+        // exactly ONE card is ever marked current.
+        var subIsActive = currentSub && (
+          currentSub.is_active ||
+          currentSub.status === 'trial' ||
+          currentSub.status === 'active' ||
+          currentSub.status === 'grace_period'
+        );
+        var isCurrent = subIsActive && currentSub.plan_name === plan.name;
+
+        // Free plan: disabled when user already has any active subscription.
+        // Allowed for: new users (no sub), expired, or cancelled.
+        var BLOCKED_FOR_FREE = { trial: true, active: true, trialing: true, grace_period: true };
+        var canActivateFree = plan.name === 'Free' && subIsActive
+          ? false
+          : true;
+
+        // Debug log for Free plan eligibility
+        if (plan.name === 'Free') {
+          console.log('[free-plan] canActivateFree:', canActivateFree, '| subIsActive:', subIsActive, '| currentSub:', currentSub);
+        }
 
         var featHtml = (m.features || []).map(function(f) {
           return '<li class="' + (f.yes ? 'yes' : 'no') + '"><span class="ic">' + (f.yes ? '✅' : '❌') + '</span><span>' + esc(f.text) + '</span></li>';
@@ -276,12 +300,36 @@
           ? '<div class="pc-badge ' + (m.badgeClass || '') + '">' + m.badge + '</div>'
           : '';
 
-        var ctaLabel = isCurrent ? '✅ Current Plan' : m.cta;
-        var ctaClass = isCurrent ? 'current' : m.ctaType;
-        var ctaDisabled = (isCurrent || plan.price === 0 && plan.name !== 'Free') ? 'disabled' : '';
-        var ctaClick = !isCurrent && plan.price > 0
-          ? 'onclick="openPayModal(\'' + plan.id + '\')"'
-          : (plan.price === 0 ? 'onclick="activateFree()"' : '');
+        // Determine CTA state for this card
+        var ctaLabel, ctaClass, ctaDisabled, ctaClick, ctaTitle;
+        if (isCurrent) {
+          ctaLabel    = '✅ Current Plan';
+          ctaClass    = 'current';
+          ctaDisabled = 'disabled';
+          ctaClick    = '';
+          ctaTitle    = '';
+        } else if (plan.name === 'Free') {
+          if (!canActivateFree) {
+            // User has an active subscription — disable the Free button
+            ctaLabel    = 'Start Free';
+            ctaClass    = 'outline';
+            ctaDisabled = 'disabled';
+            ctaClick    = '';
+            ctaTitle    = 'title="Current subscription active. Free plan available after expiry."';
+          } else {
+            ctaLabel    = m.cta;
+            ctaClass    = m.ctaType;
+            ctaDisabled = '';
+            ctaClick    = 'onclick="activateFree()"';
+            ctaTitle    = '';
+          }
+        } else {
+          ctaLabel    = m.cta;
+          ctaClass    = m.ctaType;
+          ctaDisabled = '';
+          ctaClick    = plan.price > 0 ? 'onclick="openPayModal(\'' + plan.id + '\')"' : '';
+          ctaTitle    = '';
+        }
 
         return '<div class="pc' + (m.featured ? ' featured' : '') + '">' +
           badgeHtml +
@@ -290,15 +338,48 @@
           priceHtml +
           saveHtml +
           '<ul class="pc-feats">' + featHtml + '</ul>' +
-          '<button class="pc-cta ' + ctaClass + '" ' + ctaDisabled + ' ' + ctaClick + '>' + ctaLabel + '</button>' +
+          '<button class="pc-cta ' + ctaClass + '" ' + ctaDisabled + ' ' + ctaClick + ' ' + ctaTitle + '>' + ctaLabel + '</button>' +
         '</div>';
       }).join('');
     }
 
     // ── Free plan activation ─────────────────────────────────────────────────
-    window.activateFree = function() {
-      // Free plan = trial with 5 lifetime attempts — just redirect to dashboard
-      window.location.href = '/dashboard';
+    window.activateFree = async function() {
+      var btn = event && event.target;
+      if (btn) { btn.disabled = true; btn.textContent = 'Activating…'; }
+
+      console.log('[free-plan] activating free plan');
+
+      // Log current subscription for debugging
+      var currentSub = currentSub || null;
+      console.log('[free-plan] current subscription:', currentSub);
+
+      try {
+        var r = await fetch('/api/subscription/activate-free', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
+        var d = await r.json();
+        console.log('[free-plan] response:', d);
+
+        if (r.ok) {
+          // Success — go to subscription page so banner + plan reflect new state
+          window.location.href = '/subscription';
+          return;
+        }
+
+        // 400 = active subscription exists
+        var errMsg = (d && d.detail && d.detail.message)
+          || (d && d.message)
+          || 'Could not activate Free plan.';
+        alert(errMsg);
+      } catch (e) {
+        console.error('[free-plan] network error:', e);
+        alert('Network error. Please try again.');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Start Free'; }
+      }
     };
 
     // ── Pay modal ────────────────────────────────────────────────────────────

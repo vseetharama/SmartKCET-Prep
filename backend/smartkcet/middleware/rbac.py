@@ -74,7 +74,7 @@ from sqlalchemy.orm import Session
 from ..auth.routes import SESSION_COOKIE_NAME
 from ..auth.tokens import TokenError, validate_token
 from ..db.models import User
-from ..db.session import get_session
+from ..db.session import get_async_session as get_session
 
 
 # ---------------------------------------------------------------------------
@@ -114,93 +114,52 @@ def _forbidden() -> HTTPException:
 # ---------------------------------------------------------------------------
 
 
-def require_authenticated(
+async def require_authenticated(
     request: Request,
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    """Require any authenticated user.
-
-    Raises
-    ------
-    HTTPException
-        401 when the Session_Token cookie is missing, malformed,
-        expired, or has been revoked (REQ-4.2, REQ-4.6).
-    """
-
+    """Require any authenticated user."""
     raw = _read_token(request)
     if raw is None:
         raise _unauthorized()
     try:
         payload = validate_token(session, raw)
     except TokenError as exc:
-        # Don't leak the specific reason (missing / expired / revoked) —
-        # the client doesn't need to distinguish.
         raise _unauthorized() from exc
     return payload
 
 
-def require_student(
+async def require_student(
     payload: dict[str, Any] = Depends(require_authenticated),
 ) -> dict[str, Any]:
-    """Require a student-role Session_Token.
-
-    Raises
-    ------
-    HTTPException
-        401 — propagated from :func:`require_authenticated`.
-        403 when the token authenticates a non-student role (REQ-4.3 in
-        reverse: keeps admin tokens off student data-scoping endpoints
-        that rely on ``KCET_Student_ID``).
-    """
-
+    """Require a student-role Session_Token."""
     if payload.get("role") != "student":
         raise _forbidden()
     return payload
 
 
-def require_admin(
+async def require_admin(
     payload: dict[str, Any] = Depends(require_authenticated),
 ) -> dict[str, Any]:
-    """Require a platform_admin-role Session_Token.
-
-    Raises
-    ------
-    HTTPException
-        401 — propagated from :func:`require_authenticated`.
-        403 when the token's role is not ``"platform_admin"`` (REQ-4.3).  No
-        response body data beyond the generic "forbidden" envelope is
-        returned, as required by the design truth table.
-    """
-
+    """Require a platform_admin-role Session_Token."""
     if payload.get("role") != "platform_admin":
         raise _forbidden()
     return payload
 
 
-def require_platform_admin(
+async def require_platform_admin(
     payload: dict[str, Any] = Depends(require_authenticated),
 ) -> dict[str, Any]:
-    """Require a platform_admin-role Session_Token.
-
-    Alias for require_admin for clarity in new code.
-    """
+    """Require a platform_admin-role Session_Token. Alias for require_admin."""
     if payload.get("role") != "platform_admin":
         raise _forbidden()
     return payload
 
 
-def require_institution_admin(
+async def require_institution_admin(
     payload: dict[str, Any] = Depends(require_authenticated),
 ) -> dict[str, Any]:
-    """Require an institution_admin-role Session_Token.
-
-    Raises
-    ------
-    HTTPException
-        401 — propagated from :func:`require_authenticated`.
-        403 when the token's role is not ``"institution_admin"``.
-    """
-
+    """Require an institution_admin-role Session_Token."""
     if payload.get("role") != "institution_admin":
         raise _forbidden()
     return payload

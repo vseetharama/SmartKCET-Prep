@@ -24,7 +24,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from ..db.session import get_session
+from ..db.session import get_async_session as get_session
 from ..middleware.rbac import current_user, require_student
 
 logger = logging.getLogger("smartkcet.exam.check_access")

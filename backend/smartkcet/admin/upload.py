@@ -33,7 +33,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db.models import IndexedFile, Question, Subject
-from ..db.session import get_session
+from ..db.session import get_async_session as get_session
 from ..middleware.rbac import require_admin
 from ..rag.mcq_extractor import extract_or_generate_mcqs
 from ..rag.parsing import (

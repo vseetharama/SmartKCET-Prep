@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 from ..db.models import (
     Exam, ExamSet, ExamSetQuestion, IndexedFile, Question, Subject, Submission, User,
 )
-from ..db.session import get_session
+from ..db.session import get_async_session as get_session
 from ..db.subscription_models import Institution, Subscription, SubscriptionPlan
 from ..middleware.rbac import require_authenticated
 from ..rag.mcq_extractor import extract_or_generate_mcqs

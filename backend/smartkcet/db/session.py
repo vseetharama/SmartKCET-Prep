@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Iterator
+from typing import AsyncGenerator, Iterator
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
@@ -95,14 +95,30 @@ _create_tables()
 
 
 def get_session() -> Iterator[Session]:
-    """FastAPI dependency that yields a request-scoped :class:`Session`."""
-
+    """FastAPI dependency / direct call that yields a request-scoped :class:`Session`."""
     session = SessionLocal()
     try:
         yield session
-        session.commit()  # Auto-commit on success
+        session.commit()
     except Exception:
-        session.rollback()  # Rollback on error
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+async def get_async_session() -> AsyncGenerator[Session, None]:
+    """Async FastAPI dependency for async route handlers.
+
+    Use this in ``Depends(get_async_session)`` for async routes to avoid
+    the anyio contextmanager_in_threadpool path that fails under Python 3.14.
+    """
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
         raise
     finally:
         session.close()
@@ -113,4 +129,5 @@ __all__ = [
     "engine",
     "SessionLocal",
     "get_session",
+    "get_async_session",
 ]

@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..db.models import User
-from ..db.session import get_session
+from ..db.session import get_async_session as get_session
 from ..db.subscription_models import Institution, Subscription, SubscriptionPlan
 from ..middleware.rbac import require_authenticated
 from ..subscription.models import SubscriptionResponse

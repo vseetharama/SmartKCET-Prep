@@ -114,19 +114,28 @@ var SubscriptionBanner = (function () {
     if (status === 'overdue') return 'overdue';
     if (status === 'grace_period') return 'grace_period';
 
-    // Active / trial — disambiguate using plan_type and computed flags.
+    // Active / trial — disambiguate using plan_type, is_trial flag, and
+    // plan_name so that purchased trial plans (plan_type='individual',
+    // status='active', is_trial=true) are correctly classified as 'trial'.
     // REQ-4.8: more permissive subscription wins for dual access.
     //   Pro (active+unlimited) > Institution-active > Trial
     if (status === 'active' || status === 'trial') {
       // Explicit "expiring soon" hint from backend
       if (data.is_expiring_soon === true) return 'expiring_soon';
 
-      if (planType === 'pro') return 'active';
       if (planType === 'institution') return 'institution';
-      if (planType === 'trial') return 'trial';
 
-      // Fall back to the raw status when plan_type is absent
-      return status === 'trial' ? 'trial' : 'active';
+      // Detect trial by: explicit flag, plan_type, raw status, or plan_name.
+      var isTrial =
+        data.is_trial === true ||
+        planType === 'trial' ||
+        status === 'trial' ||
+        (data.plan_name && data.plan_name.toLowerCase().indexOf('trial') !== -1);
+
+      if (isTrial) return 'trial';
+
+      // Remaining active paid plans (Pro Monthly, Pro Yearly, etc.)
+      return 'active';
     }
 
     // Unknown / future states — treat as inactive so we still render.
@@ -240,12 +249,49 @@ var SubscriptionBanner = (function () {
   }
 
   /**
-   * Pick a sensible status label, allowing per-status overrides
-   * (e.g. trial keeps the "Free Trial Active" copy, overdue uses "Payment Overdue").
+   * Pick a sensible status label driven by the actual plan the user holds.
+   *
+   * Priority order:
+   *  1. Terminal / warning states (overdue, expired, etc.) always use their
+   *     fixed label — plan name is irrelevant when the subscription has lapsed.
+   *  2. Active / trial states: use plan_name from the API when available,
+   *     with " Active" appended, so a "7-Day Premium Trial" user sees
+   *     "7-Day Premium Trial Active" rather than the generic
+   *     "Pro Subscription Active".  If plan_name is absent, fall back to
+   *     the STATUS_LABELS table.
+   *
+   * REQ-4.3 (trial copy), REQ-4.4 (pro copy).
    */
   function _buildStatusLabel(statusCode, data) {
+    // Debug log to help verify the data being used for banner text
+    console.log('[subscription-banner] subscription:', data);
+
+    // Terminal / warning states always use their fixed label.
+    var terminalStates = {
+      overdue:       true,
+      grace_period:  true,
+      expiring_soon: true,
+      expired:       true,
+      cancelled:     true,
+    };
+    if (terminalStates[statusCode]) {
+      return STATUS_LABELS[statusCode] || statusCode;
+    }
+
+    // For active-style states use plan_name when the backend provides it.
+    // Append " Active" so it reads naturally ("7-Day Premium Trial Active").
+    if (data && data.plan_name) {
+      // Avoid double-appending " Active" if the name already ends with it.
+      var name = data.plan_name;
+      if (name.toLowerCase().indexOf('active') === -1) {
+        return name + ' Active';
+      }
+      return name;
+    }
+
+    // Fall back to the STATUS_LABELS table (keeps existing behaviour for
+    // cases where plan_name is not returned).
     if (STATUS_LABELS[statusCode]) return STATUS_LABELS[statusCode];
-    if (data && data.plan_name) return data.plan_name;
     return 'Subscription';
   }
 

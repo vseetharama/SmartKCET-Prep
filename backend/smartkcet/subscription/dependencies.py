@@ -9,7 +9,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from ..db.session import get_session
+from ..db.session import get_async_session as get_session
 from ..middleware.rbac import current_user
 from .access_control import AccessLevel, SubscriptionAccessControl
 

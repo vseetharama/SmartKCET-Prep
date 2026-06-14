@@ -39,7 +39,7 @@ from sqlalchemy import select, func as sa_func
 from sqlalchemy.orm import Session
 
 from ..db.models import Question, Subject
-from ..db.session import get_session
+from ..db.session import get_async_session as get_session
 from ..middleware.rbac import require_admin
 from ..rag.store import stores
 
