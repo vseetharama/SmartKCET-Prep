@@ -98,7 +98,7 @@ class SubscriptionPlan(Base):
 
     __tablename__ = "subscription_plans"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=False, native_uuid=False), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     plan_type: Mapped[str] = mapped_column(String(20), nullable=False)
     billing_period: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -154,7 +154,7 @@ class Subscription(Base):
         Uuid, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True
     )
     plan_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("subscription_plans.id", ondelete="RESTRICT"), nullable=False
+        Uuid(as_uuid=False, native_uuid=False), ForeignKey("subscription_plans.id", ondelete="RESTRICT"), nullable=False
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     start_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)

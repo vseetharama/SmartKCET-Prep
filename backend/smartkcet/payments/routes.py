@@ -95,7 +95,7 @@ class VerifyPaymentRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.get("/plans")
-def list_plans(db: Session = Depends(get_session)) -> Any:
+async def list_plans(db: Session = Depends(get_session)) -> Any:
     """Return all active subscription plans (both institution and individual)."""
     plans = (
         db.query(SubscriptionPlan)
@@ -111,7 +111,7 @@ def list_plans(db: Session = Depends(get_session)) -> Any:
 
 
 @router.get("/plans/student")
-def list_student_plans(db: Session = Depends(get_session)) -> Any:
+async def list_student_plans(db: Session = Depends(get_session)) -> Any:
     """Return active individual (student) subscription plans."""
     plans = (
         db.query(SubscriptionPlan)
@@ -130,7 +130,7 @@ def list_student_plans(db: Session = Depends(get_session)) -> Any:
 
 
 @router.get("/plans/institution")
-def list_institution_plans(db: Session = Depends(get_session)) -> Any:
+async def list_institution_plans(db: Session = Depends(get_session)) -> Any:
     """Return active institution subscription plans."""
     plans = (
         db.query(SubscriptionPlan)
@@ -296,12 +296,20 @@ async def verify_payment(
     Subscription activation happens only via the server-side webhook.
     Returns 200 immediately so the frontend can show "payment received" UI.
     """
+    print(f"\n[VERIFY] /verify endpoint HIT")
+    print(f"[VERIFY] razorpay_order_id = {body.razorpay_order_id}")
+    print(f"[VERIFY] razorpay_payment_id = {body.razorpay_payment_id}")
+    print(f"[VERIFY] razorpay_signature = {body.razorpay_signature[:20]}...")
+    
+    print(f"[VERIFY] Verifying payment signature...")
     valid = gateway.verify_payment_signature(
         body.razorpay_order_id,
         body.razorpay_payment_id,
         body.razorpay_signature,
     )
+    
     if not valid:
+        print(f"[VERIFY] ❌ SIGNATURE VERIFICATION FAILED")
         logger.warning("Frontend payment verification FAILED for order %s", body.razorpay_order_id)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -312,20 +320,32 @@ async def verify_payment(
             },
         )
 
+    print(f"[VERIFY] ✅ SIGNATURE VERIFICATION SUCCESS")
     logger.info("Frontend payment verified (awaiting webhook) for order %s", body.razorpay_order_id)
 
     # In test mode (rzp_test_ keys), activate subscription directly since
     # Razorpay can't reach localhost with a webhook. In production (rzp_live_),
     # activation happens ONLY via the server-side webhook — this block is skipped.
     razorpay_key = gateway.get_public_key()
+    print(f"[VERIFY] Razorpay key starts with: {razorpay_key[:8]}")
+    
     if razorpay_key.startswith("rzp_test_"):
-        logger.info("TEST MODE — activating subscription directly from /verify (no webhook available)")
+        print(f"[VERIFY] TEST MODE DETECTED - calling _activate_on_payment directly")
         try:
             from .service import _activate_on_payment
+            print(f"[VERIFY] Calling _activate_on_payment({body.razorpay_order_id}, ...)")
             _activate_on_payment(db, body.razorpay_order_id, body.razorpay_payment_id, 0, "test_card")
+            print(f"[VERIFY] ✅ _activate_on_payment returned successfully")
         except Exception as e:
+            print(f"[VERIFY] ❌ Test-mode direct activation FAILED:")
+            print(f"[VERIFY] Exception: {e}")
+            import traceback
+            traceback.print_exc()
             logger.warning("Test-mode direct activation failed: %s", e)
+    else:
+        print(f"[VERIFY] PRODUCTION MODE - activation will happen via webhook")
 
+    print(f"[VERIFY] Returning success response\n")
     return {
         "verified": True,
         "message": "Payment received. Your subscription has been activated.",

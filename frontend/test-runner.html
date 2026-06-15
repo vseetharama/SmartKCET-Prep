@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bug Condition Exploration Test Runner</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+      line-height: 1.6;
+      background: #f5f5f5;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      border-bottom: 2px solid #a78bfa;
+      padding-bottom: 10px;
+    }
+    .status {
+      background: #f0f0f0;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+      border-left: 4px solid #ddd;
+    }
+    .status.running {
+      border-left-color: #3b82f6;
+      background: #eff6ff;
+    }
+    .status.failed {
+      border-left-color: #ef4444;
+      background: #fef2f2;
+    }
+    .status.passed {
+      border-left-color: #10b981;
+      background: #f0fdf4;
+    }
+    .test-output {
+      background: #1a1a1a;
+      color: #00ff00;
+      font-family: 'Monaco', 'Courier New', monospace;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-y: auto;
+      max-height: 600px;
+      margin: 20px 0;
+      line-height: 1.4;
+    }
+    .test-output .pass {
+      color: #10b981;
+    }
+    .test-output .fail {
+      color: #ef4444;
+    }
+    .test-output .info {
+      color: #3b82f6;
+    }
+    button {
+      background: #a78bfa;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1rem;
+      margin: 10px 5px 10px 0;
+    }
+    button:hover {
+      background: #9370db;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧪 Bug Condition Exploration Test Runner</h1>
+    <p>Testing: <strong>Frontend Plan Selection Array Index Bug</strong></p>
+    <p>Expected: Tests MUST FAIL on unfixed code (failure = bug confirmed)</p>
+
+    <div id="status" class="status running">
+      <strong>Status:</strong> <span id="statusText">Loading test environment...</span>
+    </div>
+
+    <div id="testOutput" class="test-output"></div>
+
+    <div>
+      <button id="runButton" onclick="runTests()" disabled>Run Tests</button>
+      <button id="clearButton" onclick="clearOutput()">Clear Output</button>
+    </div>
+
+    <div id="results"></div>
+  </div>
+
+  <!-- Mock subscription modal for testing -->
+  <div id="subscriptionModal" style="display: none;"></div>
+
+  <script>
+    // Intercept console methods to capture output
+    const testOutput = document.getElementById('testOutput');
+    const originalLog = console.log;
+    const originalError = console.error;
+
+    function appendOutput(text, className) {
+      const line = document.createElement('div');
+      if (className) line.className = className;
+      line.textContent = text;
+      testOutput.appendChild(line);
+      testOutput.scrollTop = testOutput.scrollHeight;
+    }
+
+    console.log = function(...args) {
+      originalLog(...args);
+      const text = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+      let className = '';
+      if (text.includes('✅')) className = 'pass';
+      else if (text.includes('❌')) className = 'fail';
+      else if (text.includes('[')) className = 'info';
+      appendOutput(text, className);
+    };
+
+    console.error = function(...args) {
+      originalError(...args);
+      const text = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+      appendOutput(text, 'fail');
+    };
+
+    function clearOutput() {
+      testOutput.innerHTML = '';
+    }
+
+    function updateStatus(message, className) {
+      document.getElementById('statusText').textContent = message;
+      const status = document.getElementById('status');
+      status.className = 'status ' + className;
+    }
+
+    function runTests() {
+      clearOutput();
+      updateStatus('Running tests...', 'running');
+      document.getElementById('runButton').disabled = true;
+
+      // Check if SubscriptionModal is loaded
+      if (typeof SubscriptionModal === 'undefined') {
+        appendOutput('❌ ERROR: SubscriptionModal not loaded', 'fail');
+        updateStatus('Failed to load SubscriptionModal', 'failed');
+        document.getElementById('runButton').disabled = false;
+        return;
+      }
+
+      try {
+        runBugConditionExplorationTests();
+
+        // Wait for async tests to complete
+        setTimeout(function() {
+          const results = window._bugConditionTestResults;
+          if (results) {
+            if (results.failed > 0) {
+              updateStatus(`Tests Failed: ${results.failed} failures (bug confirmed)`, 'failed');
+              appendOutput('\n📋 SUMMARY: Bug condition exploration tests FAILED on unfixed code', 'info');
+              appendOutput('This is EXPECTED behavior - the test correctly detects the bug exists.', 'info');
+            } else {
+              updateStatus(`Tests Passed: All ${results.passed} tests passed`, 'passed');
+              appendOutput('\n📋 SUMMARY: Bug condition exploration tests PASSED', 'info');
+              appendOutput('WARNING: Tests passed when they should fail. Bug may not exist or test may need adjustment.', 'fail');
+            }
+          }
+          document.getElementById('runButton').disabled = false;
+        }, 2000);
+      } catch (err) {
+        appendOutput('❌ ERROR running tests: ' + err.message, 'fail');
+        updateStatus('Tests failed with error', 'failed');
+        document.getElementById('runButton').disabled = false;
+      }
+    }
+
+    // Initialize
+    window.addEventListener('DOMContentLoaded', function() {
+      updateStatus('Ready to run tests', 'running');
+      document.getElementById('runButton').disabled = false;
+      appendOutput('Test environment ready. Click "Run Tests" to begin.', 'info');
+    });
+  </script>
+
+  <!-- Load required dependencies -->
+  <script src="js/subscription-modal.js"></script>
+  <script src="js/subscription-modal.test.js"></script>
+</body>
+</html>

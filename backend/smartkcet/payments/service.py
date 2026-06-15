@@ -71,8 +71,13 @@ def create_institution_order(
 
     Returns the data the frontend needs to open the Razorpay checkout modal.
     """
+    from sqlalchemy import cast, String
+    
+    logger.info(f"[create_institution_order] institution_id: {institution_id}, plan_id: {plan_id}")
+    
+    # FIX: Cast id to String for proper comparison with Uuid(as_uuid=False, native_uuid=False)
     plan = db.query(SubscriptionPlan).filter(
-        SubscriptionPlan.id == plan_id,
+        cast(SubscriptionPlan.id, String) == str(plan_id),
         SubscriptionPlan.is_active.is_(True),
     ).first()
     if not plan:
@@ -150,9 +155,14 @@ def _get_or_create_pending_sub(
     # In real flow, subscription is created/updated only after payment webhook
     # We create a minimal pending record to link billing
     now = datetime.utcnow()
+    # Ensure plan_id is properly formatted UUID string with hyphens
+    plan_id_str = str(plan.id) if isinstance(plan.id, str) else str(plan.id)
+    if len(plan_id_str) == 32 and '-' not in plan_id_str:  # Unhyphenated UUID
+        plan_id_str = f"{plan_id_str[:8]}-{plan_id_str[8:12]}-{plan_id_str[12:16]}-{plan_id_str[16:20]}-{plan_id_str[20:]}"
+    
     sub = Subscription(
         institution_id=institution_id,
-        plan_id=plan.id,
+        plan_id=plan_id_str,
         status="expired",          # stays expired until webhook activates
         start_date=now,
         current_period_start=now,
@@ -216,72 +226,135 @@ def _activate_on_payment(
     method: str,
 ) -> None:
     """Activate / renew institution subscription after successful payment."""
-    # Find the billing record for this order
-    billing = db.query(BillingRecord).filter(
-        BillingRecord.razorpay_order_id == order_id
-    ).first()
+    import traceback
+    
+    print(f"\n[PAYMENT] _activate_on_payment START - order_id={order_id}")
+    try:
+        # Find the billing record for this order
+        print(f"[PAYMENT] Looking for BillingRecord with razorpay_order_id={order_id}")
+        billing = db.query(BillingRecord).filter(
+            BillingRecord.razorpay_order_id == order_id
+        ).first()
 
-    if billing is None:
-        logger.warning("No BillingRecord found for order_id=%s — cannot activate", order_id)
-        return
+        if billing is None:
+            print(f"[PAYMENT] ❌ NO BILLINGRECORD FOUND for order_id={order_id}")
+            logger.warning("No BillingRecord found for order_id=%s — cannot activate", order_id)
+            return
 
-    if billing.payment_status == "paid":
-        logger.info("Order %s already processed — idempotent skip", order_id)
-        return
+        print(f"[PAYMENT] ✓ BillingRecord found: id={billing.id}, subscription_id={billing.subscription_id}")
+        print(f"[PAYMENT] billing.plan_id = {billing.plan_id}")
+        print(f"[PAYMENT] billing.payment_status = {billing.payment_status}")
 
-    # Mark billing as paid
-    billing.payment_status = "paid"
-    billing.razorpay_payment_id = payment_id
-    billing.payment_method_ref  = method
-    billing.transaction_ref      = payment_id
+        if billing.payment_status == "paid":
+            print(f"[PAYMENT] ⏭️  Order {order_id} already processed — idempotent skip")
+            logger.info("Order %s already processed — idempotent skip", order_id)
+            return
 
-    # Get the subscription + plan
-    sub  = db.query(Subscription).filter(Subscription.id == billing.subscription_id).first()
-    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == billing.plan_id or SubscriptionPlan.id == sub.plan_id).first()
+        # Mark billing as paid
+        print(f"[PAYMENT] Marking billing as paid...")
+        billing.payment_status = "paid"
+        billing.razorpay_payment_id = payment_id
+        billing.payment_method_ref  = method
+        billing.transaction_ref      = payment_id
 
-    if not sub or not plan:
-        logger.error("Cannot activate: subscription or plan missing for order %s", order_id)
-        return
+        # Get the subscription
+        print(f"[PAYMENT] Looking for Subscription with id={billing.subscription_id}")
+        sub  = db.query(Subscription).filter(Subscription.id == billing.subscription_id).first()
+        
+        if not sub:
+            print(f"[PAYMENT] ❌ SUBSCRIPTION NOT FOUND for id={billing.subscription_id}")
+            logger.error("Cannot activate: subscription missing for order %s", order_id)
+            return
+        
+        print(f"[PAYMENT] ✓ Subscription found: id={sub.id}, user_id={sub.user_id}, status={sub.status}")
+        print(f"[PAYMENT] subscription.plan_id = {sub.plan_id}")
 
-    now = datetime.utcnow()
-    prev_status = sub.status
-    duration    = _plan_duration(plan.billing_period)
+        # Get the plan - billing.plan_id is the authoritative source (user's selection)
+        from sqlalchemy import cast, String
+        billing_plan_id_str = str(billing.plan_id) if billing.plan_id else None
+        print(f"[PAYMENT] Looking for Plan with id={billing_plan_id_str}")
+        
+        plan = db.query(SubscriptionPlan).filter(
+            cast(SubscriptionPlan.id, String) == billing_plan_id_str
+        ).first() if billing_plan_id_str else None
+        
+        if not plan:
+            print(f"[PAYMENT] ❌ PLAN NOT FOUND for billing.plan_id={billing.plan_id}")
+            logger.error(
+                "Cannot activate: plan not found for order %s (billing.plan_id=%s)",
+                order_id, 
+                billing.plan_id
+            )
+            return
 
-    sub.plan_id               = billing.plan_id or sub.plan_id
-    sub.status                = "active"
-    sub.start_date            = sub.start_date if sub.status != "expired" else now
-    sub.current_period_start  = now
-    sub.next_renewal_date     = now + duration
-    sub.cancellation_date     = None
-    sub.grace_period_end      = None
+        print(f"[PAYMENT] ✓ Plan found: name={plan.name}, price=₹{plan.price}, period={plan.billing_period}")
 
-    # Update institution status
-    if sub.institution_id:
-        inst = db.query(Institution).filter(Institution.id == sub.institution_id).first()
-        if inst:
-            inst.subscription_status = "active"
+        now = datetime.utcnow()
+        prev_status = sub.status
+        duration    = _plan_duration(plan.billing_period)
 
-    # Audit event
-    event = SubscriptionEvent(
-        subscription_id=sub.id,
-        event_type="activated" if prev_status in ("expired", "cancelled") else "renewed",
-        previous_status=prev_status,
-        new_status="active",
-        event_metadata={
-            "razorpay_order_id":   order_id,
-            "razorpay_payment_id": payment_id,
-            "payment_method":      method,
-            "amount_paise":        amount_paise,
-            "activated_at":        now.isoformat(),
-        },
-    )
-    db.add(event)
-    db.commit()
+        print(f"[PAYMENT] ⚙️  Activating subscription...")
+        print(f"[PAYMENT]   prev_status = {prev_status}")
+        print(f"[PAYMENT]   new_status = active")
+        print(f"[PAYMENT]   setting plan_id = {billing.plan_id}")
+        print(f"[PAYMENT]   duration = {duration}")
 
-    logger.info(
-        "Subscription %s activated via webhook (order=%s, payment=%s)",
-        sub.id, order_id, payment_id,
-    )
+        sub.plan_id               = billing.plan_id
+        sub.status                = "active"
+        sub.start_date            = sub.start_date if sub.status != "expired" else now
+        sub.current_period_start  = now
+        sub.next_renewal_date     = now + duration
+        sub.cancellation_date     = None
+        sub.grace_period_end      = None
+
+        print(f"[PAYMENT] ✓ Subscription object updated in memory")
+        print(f"[PAYMENT]   sub.status NOW = {sub.status}")
+        print(f"[PAYMENT]   sub.plan_id NOW = {sub.plan_id}")
+
+        # Update institution status
+        if sub.institution_id:
+            print(f"[PAYMENT] Institution subscription - updating institution status")
+            inst = db.query(Institution).filter(Institution.id == sub.institution_id).first()
+            if inst:
+                inst.subscription_status = "active"
+                print(f"[PAYMENT] ✓ Institution status set to 'active'")
+
+        # Audit event
+        print(f"[PAYMENT] Creating SubscriptionEvent for audit trail...")
+        event = SubscriptionEvent(
+            subscription_id=sub.id,
+            event_type="activated" if prev_status in ("expired", "cancelled") else "renewed",
+            previous_status=prev_status,
+            new_status="active",
+            event_metadata={
+                "razorpay_order_id":   order_id,
+                "razorpay_payment_id": payment_id,
+                "payment_method":      method,
+                "amount_paise":        amount_paise,
+                "activated_at":        now.isoformat(),
+            },
+        )
+        db.add(event)
+        print(f"[PAYMENT] ✓ SubscriptionEvent added to session")
+
+        print(f"[PAYMENT] 💾 COMMITTING TO DATABASE...")
+        db.commit()
+        print(f"[PAYMENT] ✅ DB COMMIT SUCCESS")
+
+        logger.info(
+            "Subscription %s activated via webhook (order=%s, payment=%s)",
+            sub.id, order_id, payment_id,
+        )
+        print(f"[PAYMENT] ✅ _activate_on_payment COMPLETED SUCCESSFULLY\n")
+
+    except Exception as e:
+        print(f"[PAYMENT] ❌ EXCEPTION IN _activate_on_payment:")
+        print(f"[PAYMENT] Exception type: {type(e)}")
+        print(f"[PAYMENT] Exception message: {e}")
+        print(f"[PAYMENT] Full traceback:")
+        traceback.print_exc()
+        logger.exception("Exception in _activate_on_payment: %s", e)
+        raise
 
 
 def _fail_billing_record(
@@ -373,41 +446,25 @@ def create_student_order(
     Works with test keys in dev mode — no code change needed for production.
     """
     from ..db.models import User as UserModel
+    from sqlalchemy import cast, String
 
-    # DEBUG: Log incoming parameters
-    print("="*60)
-    print("==== CREATE_STUDENT_ORDER DEBUG ====")
-    print("="*60)
-    print(f"user_id: {user_id}, type: {type(user_id)}")
-    print(f"plan_id: {plan_id}, type: {type(plan_id)}")
-    print(f"Is plan_id UUID?: {isinstance(plan_id, uuid.UUID)}")
-    print("-"*60)
-    
-    logger.info(f"[create_student_order] user_id: {user_id}, type: {type(user_id)}")
-    logger.info(f"[create_student_order] plan_id: {plan_id}, type: {type(plan_id)}")
+    logger.info(f"[create_student_order] user_id: {user_id}, plan_id: {plan_id}")
     
     try:
-        print(f"Querying DB for plan_id: {plan_id}")
+        # FIX: Cast id to String for proper comparison with Uuid(as_uuid=False, native_uuid=False)
         plan = db.query(SubscriptionPlan).filter(
-            SubscriptionPlan.id == plan_id,
+            cast(SubscriptionPlan.id, String) == str(plan_id),
             SubscriptionPlan.is_active.is_(True),
         ).first()
-        print(f"Query result: {plan}")
     except Exception as e:
-        print(f"❌ DB QUERY FAILED!")
-        print(f"Exception: {e}")
-        print(f"Exception type: {type(e)}")
         logger.error(f"[create_student_order] DB query failed: {e}")
         raise
     
     if not plan:
-        print(f"❌ PLAN NOT FOUND!")
-        print(f"Searched for plan_id: {plan_id}")
         logger.error(f"[create_student_order] Plan {plan_id} not found or inactive")
         raise ValueError(f"Plan {plan_id} not found or inactive")
     
-    print(f"✅ Plan found: {plan.name}")
-    print("="*60)
+    logger.info(f"[create_student_order] Plan found: {plan.name} at ₹{plan.price}")
 
     if plan.plan_type != "individual":
         raise ValueError("Students can only subscribe to individual plans")
@@ -492,9 +549,14 @@ def _get_or_create_pending_student_sub(
 ) -> uuid.UUID:
     """Create a minimal pending subscription stub for billing linkage."""
     now = datetime.utcnow()
+    # Ensure plan_id is properly formatted UUID string with hyphens
+    plan_id_str = str(plan.id) if isinstance(plan.id, str) else str(plan.id)
+    if len(plan_id_str) == 32 and '-' not in plan_id_str:  # Unhyphenated UUID
+        plan_id_str = f"{plan_id_str[:8]}-{plan_id_str[8:12]}-{plan_id_str[12:16]}-{plan_id_str[16:20]}-{plan_id_str[20:]}"
+    
     sub = Subscription(
         user_id=user_id,
-        plan_id=plan.id,
+        plan_id=plan_id_str,
         status="expired",
         start_date=now,
         current_period_start=now,
@@ -519,11 +581,17 @@ def _activate_student_on_payment(
     """Activate / upgrade a student subscription after verified webhook."""
     from ..db.models import User as UserModel
     from datetime import timedelta
+    from sqlalchemy import cast, String
 
     sub  = db.query(Subscription).filter(Subscription.id == billing.subscription_id).first()
+    
+    # Use billing.plan_id if available (user's selection), fallback to sub.plan_id
+    plan_id_to_use = billing.plan_id or sub.plan_id
+    plan_id_str = str(plan_id_to_use) if plan_id_to_use else None
+    
     plan = db.query(SubscriptionPlan).filter(
-        SubscriptionPlan.id == (billing.plan_id or sub.plan_id)
-    ).first()
+        cast(SubscriptionPlan.id, String) == plan_id_str
+    ).first() if plan_id_str else None
 
     if not sub or not plan:
         logger.error("Cannot activate student sub: sub or plan missing for order %s", order_id)
@@ -617,11 +685,18 @@ def _activate_institution_sub(
     order_id: str,
 ) -> None:
     """Activate institution subscription (extracted for clarity)."""
+    from sqlalchemy import cast, String
+    
+    # Use billing.plan_id if available (user's selection), fallback to sub.plan_id
+    plan_id_to_use = billing.plan_id or sub.plan_id
+    plan_id_str = str(plan_id_to_use) if plan_id_to_use else None
+    
     plan = db.query(SubscriptionPlan).filter(
-        SubscriptionPlan.id == (billing.plan_id or sub.plan_id)
-    ).first()
+        cast(SubscriptionPlan.id, String) == plan_id_str
+    ).first() if plan_id_str else None
+    
     if not plan:
-        logger.error("Plan not found for order %s", order_id)
+        logger.error("Plan not found for order %s (plan_id=%s)", order_id, plan_id_to_use)
         return
 
     now         = datetime.utcnow()

@@ -172,15 +172,29 @@ async def custom_http_exception_handler(request, exc):
 @app.on_event("startup")
 async def startup_scheduler():
     """Start the subscription lifecycle scheduler and seed KCET syllabus."""
-    from .db.session import get_session
     from .subscription.scheduler import (
         start_subscription_scheduler,
         get_scheduler_interval,
     )
     from .db.syllabus_seed import seed_syllabus
+    from .db.seed import seed_admin, seed_subscription_plans
+    from .db.session import SessionLocal
     import logging as _log
 
-    db = next(get_session())
+    # Create a direct session for seeding (bypass FastAPI dependency injection)
+    db = SessionLocal()
+
+    # Seed admin user on first run (idempotent — skips if already exists)
+    try:
+        seeded = seed_admin()
+        if seeded:
+            _log.getLogger("smartkcet.main").info(
+                "Admin user seeded successfully."
+            )
+    except Exception as _seed_err:
+        _log.getLogger("smartkcet.main").warning(
+            "Admin seed failed (non-fatal): %s", _seed_err
+        )
 
     # Seed KCET syllabus on first run (idempotent — skips if already seeded)
     try:
@@ -194,8 +208,65 @@ async def startup_scheduler():
             "Syllabus seed failed (non-fatal): %s", _seed_err
         )
 
+    # Seed subscription plans on first run (idempotent — skips if already seeded)
+    try:
+        seeded = seed_subscription_plans()
+        if seeded:
+            _log.getLogger("smartkcet.main").info(
+                "Subscription plans seeded: %d plans inserted.", seeded
+            )
+    except Exception as _seed_err:
+        _log.getLogger("smartkcet.main").warning(
+            "Subscription plans seed failed (non-fatal): %s", _seed_err
+        )
+
+    # SAFETY CHECK: Detect and fix incorrect USD/dev pricing (₹9.99, ₹99.99)
+    # This prevents incorrect pricing from being served if database gets corrupted
+    try:
+        from sqlalchemy import update
+        from .db.subscription_models import SubscriptionPlan
+        from decimal import Decimal
+        
+        logger = _log.getLogger("smartkcet.main")
+        
+        # Check for incorrect USD pricing that should be INR
+        wrong_prices = {
+            Decimal("9.99"): Decimal("349.00"),      # Pro Monthly: ₹9.99 → ₹349
+            Decimal("99.99"): Decimal("2999.00"),    # Pro Yearly: ₹99.99 → ₹2999
+        }
+        
+        for wrong_price, correct_price in wrong_prices.items():
+            wrong_plans = db.query(SubscriptionPlan).filter(
+                SubscriptionPlan.price == wrong_price,
+                SubscriptionPlan.plan_type == "individual"
+            ).all()
+            
+            if wrong_plans:
+                logger.warning(
+                    "CRITICAL: Found %d plans with incorrect USD pricing (₹%s). Auto-correcting to INR (₹%s)",
+                    len(wrong_plans), wrong_price, correct_price
+                )
+                
+                for plan in wrong_plans:
+                    old_price = plan.price
+                    plan.price = correct_price
+                    db.add(plan)
+                    logger.warning(
+                        "AUTO-CORRECTED: Plan '%s' price ₹%s → ₹%s",
+                        plan.name, old_price, correct_price
+                    )
+                
+                db.commit()
+    except Exception as _safety_err:
+        logger.warning(
+            "Pricing safety check failed (non-fatal): %s", _safety_err
+        )
+        db.rollback()
+
+    db.close()
+
     interval = get_scheduler_interval()
-    await start_subscription_scheduler(db, interval_minutes=interval)
+    await start_subscription_scheduler(SessionLocal(), interval_minutes=interval)
 
 
 @app.on_event("shutdown")

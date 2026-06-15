@@ -1,0 +1,72 @@
+================================================================================
+PAYMENT CREATE-ORDER 400 ERROR - ROOT CAUSE & FIX
+================================================================================
+
+ISSUE:
+  POST /api/payments/create-order returns HTTP 400 for Trial/Monthly/Yearly plans
+  Free plan works, but paid plans fail
+
+ROOT CAUSE:
+  SQLAlchemy UUID column type mismatch with SQLite
+  - Database stores UUIDs as strings (SQLite limitation)
+  - ORM was configured with default Uuid type (not SQLite-aware)
+  - Bind processor couldn't match string IDs with UUID objects
+  - Plan lookup failed → ValueError → 400 response
+
+SOLUTION:
+
+1. Backend Model Configuration (backend/smartkcet/db/subscription_models.py)
+   Line ~101: Changed SubscriptionPlan.id column definition
+   
+   FROM:
+     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, ...)
+   
+   TO:
+     id: Mapped[uuid.UUID] = mapped_column(
+         Uuid(as_uuid=False, native_uuid=False), 
+         primary_key=True, ...
+     )
+   
+   This tells SQLAlchemy:
+   - as_uuid=False: Store/retrieve UUIDs as strings (not UUID objects)
+   - native_uuid=False: Don't use SQLite's native UUID type (doesn't exist)
+
+2. Query Fix (backend/smartkcet/payments/service.py)
+   Lines ~75 and ~378: Cast UUID column to String for comparison
+   
+   FROM:
+     plan = db.query(SubscriptionPlan).filter(
+         SubscriptionPlan.id == plan_id,
+     ).first()
+   
+   TO:
+     from sqlalchemy import cast, String
+     plan = db.query(SubscriptionPlan).filter(
+         cast(SubscriptionPlan.id, String) == str(plan_id),
+     ).first()
+   
+   This ensures both sides of comparison are strings
+
+3. Database Cleanup (backend/fix_uuid_format.py)
+   Fixed "Free" plan UUID format from unhyphenated to standard format
+
+RESULTS:
+
+Before:
+  ❌ Trial plan: 400 Bad Request (plan not found)
+  ❌ Monthly plan: 400 Bad Request (plan not found)
+  ❌ Yearly plan: 400 Bad Request (plan not found)
+
+After:
+  ✅ Trial plan: Found → Razorpay ₹99
+  ✅ Monthly plan: Found → Razorpay ₹349
+  ✅ Yearly plan: Found → Razorpay ₹2999
+
+VERIFICATION:
+  All payment queries now work correctly
+  No frontend changes required
+  Data consistency confirmed
+
+STATUS: ✅ FIXED
+
+Payment flow now works as expected for all plans.

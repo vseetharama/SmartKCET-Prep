@@ -37,16 +37,19 @@ class SubscriptionService:
     def activate_free(self, user_id: UUID) -> Subscription:
         """Activate Free plan (₹0) for a student.
         
-        Idempotent — returns existing active subscription if present.
-        The free plan provides limited access (3-5 mock tests, basic analytics).
+        Only allowed when no active subscription exists (all are expired/cancelled).
+        Returns existing active Free subscription if already on it.
         
         Args:
             user_id: User ID to activate free plan for
             
         Returns:
             Subscription record
+            
+        Raises:
+            ValueError: If an active paid/trial subscription already exists
         """
-        # Check for existing active subscription (idempotent return)
+        # Check for existing active subscription
         existing_active = (
             self.db.query(Subscription)
             .filter(
@@ -57,7 +60,20 @@ class SubscriptionService:
         )
         
         if existing_active:
-            return existing_active
+            # If already on Free plan, return it
+            from sqlalchemy import cast, String
+            existing_plan = self.db.query(SubscriptionPlan).filter(
+                cast(SubscriptionPlan.id, String) == str(existing_active.plan_id)
+            ).first()
+            
+            if existing_plan and existing_plan.name == "Free" and existing_plan.price == 0:
+                return existing_active  # Already on Free
+            
+            # Otherwise, block if they're on a paid/trial plan
+            raise ValueError(
+                "Cannot activate Free plan while an active paid or trial subscription exists. "
+                "Please wait for your subscription to expire."
+            )
         
         # Get Free plan (₹0)
         free_plan = (
@@ -76,9 +92,14 @@ class SubscriptionService:
         
         # Create new free subscription
         now = datetime.utcnow()
+        # Ensure plan_id is properly formatted UUID string with hyphens
+        plan_id_str = str(free_plan.id) if isinstance(free_plan.id, str) else str(free_plan.id)
+        if len(plan_id_str) == 32 and '-' not in plan_id_str:  # Unhyphenated UUID
+            plan_id_str = f"{plan_id_str[:8]}-{plan_id_str[8:12]}-{plan_id_str[12:16]}-{plan_id_str[16:20]}-{plan_id_str[20:]}"
+        
         subscription = Subscription(
             user_id=user_id,
-            plan_id=free_plan.id,
+            plan_id=plan_id_str,
             status="active",
             start_date=now,
             current_period_start=now,
@@ -112,7 +133,7 @@ class SubscriptionService:
     ) -> Subscription:
         """Create a Free Trial subscription.
         
-        Idempotent — returns existing active subscription if present.
+        If user already has an active Free subscription, deactivate it first.
         One trial per account lifetime — raises ValueError if a prior trial exists
         in any state (expired, cancelled, or active).
         
@@ -132,7 +153,7 @@ class SubscriptionService:
                 f"Trial duration must be between 1 and 90 days, got {duration_days}"
             )
         
-        # Check for existing active subscription (idempotent return)
+        # Check for existing active subscription and DEACTIVATE if it's Free
         existing_active = (
             self.db.query(Subscription)
             .filter(
@@ -143,7 +164,18 @@ class SubscriptionService:
         )
         
         if existing_active:
-            return existing_active
+            # If it's the same trial, return it (idempotent)
+            from sqlalchemy import cast, String
+            existing_plan = self.db.query(SubscriptionPlan).filter(
+                cast(SubscriptionPlan.id, String) == str(existing_active.plan_id)
+            ).first()
+            
+            if existing_plan and existing_plan.name == "Free Trial":
+                return existing_active  # Already on trial, return it
+            
+            # Otherwise deactivate the previous subscription (Free/Pro/etc)
+            existing_active.status = "expired"
+            self.db.flush()
         
         # Prevent trial abuse: one trial per account lifetime
         prior_trial = (
@@ -179,9 +211,14 @@ class SubscriptionService:
         
         # Create new trial subscription
         now = datetime.utcnow()
+        # Ensure plan_id is properly formatted UUID string with hyphens
+        plan_id_str = str(free_trial_plan.id) if isinstance(free_trial_plan.id, str) else str(free_trial_plan.id)
+        if len(plan_id_str) == 32 and '-' not in plan_id_str:  # Unhyphenated UUID
+            plan_id_str = f"{plan_id_str[:8]}-{plan_id_str[8:12]}-{plan_id_str[12:16]}-{plan_id_str[16:20]}-{plan_id_str[20:]}"
+        
         subscription = Subscription(
             user_id=user_id,
-            plan_id=free_trial_plan.id,
+            plan_id=plan_id_str,
             status="trial",
             start_date=now,
             current_period_start=now,
@@ -216,6 +253,8 @@ class SubscriptionService:
     ) -> Subscription:
         """Create a Pro subscription with the given billing period.
         
+        If user already has an active Free/Trial subscription, deactivate it first.
+        
         Args:
             user_id: User ID to activate Pro subscription for
             billing_period: Billing period (weekly or monthly)
@@ -223,8 +262,8 @@ class SubscriptionService:
         Returns:
             Subscription record
         """
-        # Check for existing active subscription (idempotent)
-        existing = (
+        # Check for existing active subscription
+        existing_active = (
             self.db.query(Subscription)
             .filter(
                 Subscription.user_id == user_id,
@@ -233,8 +272,21 @@ class SubscriptionService:
             .first()
         )
         
-        if existing:
-            return existing
+        if existing_active:
+            # If it's already the same Pro plan, return it (idempotent)
+            from sqlalchemy import cast, String
+            existing_plan = self.db.query(SubscriptionPlan).filter(
+                cast(SubscriptionPlan.id, String) == str(existing_active.plan_id)
+            ).first()
+            
+            if (existing_plan and 
+                existing_plan.name.startswith("Pro") and
+                existing_plan.billing_period == billing_period.value):
+                return existing_active  # Already on this plan
+            
+            # Otherwise deactivate the previous subscription (Free/Trial/different Pro)
+            existing_active.status = "expired"
+            self.db.flush()
         
         # Get Pro plan for the specified billing period
         pro_plan = (
@@ -263,7 +315,7 @@ class SubscriptionService:
         # Create new Pro subscription
         subscription = Subscription(
             user_id=user_id,
-            plan_id=pro_plan.id,
+            plan_id=str(pro_plan.id),  # Ensure UUID is converted to string
             status="active",
             start_date=now,
             current_period_start=now,
@@ -415,9 +467,10 @@ class SubscriptionService:
 
             inst_plan = None
             if inst_sub:
+                from sqlalchemy import cast, String
                 inst_plan = (
                     self.db.query(SubscriptionPlan)
-                    .filter(SubscriptionPlan.id == inst_sub.plan_id)
+                    .filter(cast(SubscriptionPlan.id, String) == cast(inst_sub.plan_id, String))
                     .first()
                 )
 
@@ -439,6 +492,7 @@ class SubscriptionService:
             )
         
         # Single query with all necessary joins
+        from sqlalchemy import cast, String
         result = (
             self.db.query(
                 Subscription,
@@ -446,7 +500,7 @@ class SubscriptionService:
                 User,
                 Institution
             )
-            .outerjoin(SubscriptionPlan, Subscription.plan_id == SubscriptionPlan.id)
+            .outerjoin(SubscriptionPlan, cast(Subscription.plan_id, String) == cast(SubscriptionPlan.id, String))
             .outerjoin(User, Subscription.user_id == User.id)
             .outerjoin(Institution, User.institution_id == Institution.id)
             .filter(

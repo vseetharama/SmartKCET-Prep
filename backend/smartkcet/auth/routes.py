@@ -446,7 +446,7 @@ def login(
 
 
 @router.post("/admin/login")
-def admin_login(payload: LoginRequest, response: Response) -> Any:
+async def admin_login(payload: LoginRequest, response: Response) -> Any:
     """Admin login.  REQ-3.2 / Property 7 — no token of any kind on failure.
 
     The handler resolves the configured admin credentials, runs a
@@ -489,7 +489,7 @@ def admin_login(payload: LoginRequest, response: Response) -> Any:
 
 
 @router.post("/institution/login")
-def institution_admin_login(
+async def institution_admin_login(
     payload: LoginRequest,
     response: Response,
     session: Session = Depends(get_session),

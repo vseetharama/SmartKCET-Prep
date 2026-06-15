@@ -143,7 +143,7 @@ def seed_admin(session: Optional[Session] = None) -> str:
                 kcet_student_id=None,
                 display_name=display_name,
                 password_hash=password_hash,
-                role="admin",
+                role="platform_admin",
             )
             session.add(admin)
             session.commit()
@@ -152,8 +152,8 @@ def seed_admin(session: Optional[Session] = None) -> str:
 
         # Update only the fields that should be admin-controlled.
         changed = False
-        if existing.role != "admin":
-            existing.role = "admin"
+        if existing.role != "platform_admin":
+            existing.role = "platform_admin"
             changed = True
         if existing.password_hash != password_hash:
             existing.password_hash = password_hash
@@ -177,13 +177,147 @@ def seed_admin(session: Optional[Session] = None) -> str:
             session.close()
 
 
+def seed_subscription_plans(session: Optional[Session] = None) -> int:
+    """Create default subscription plans for platform and institutions.
+    
+    Returns the number of plans inserted. Returns 0 if plans already exist
+    (idempotent).
+    """
+    from .subscription_models import SubscriptionPlan
+    from decimal import Decimal
+
+    owns_session = session is None
+    if session is None:
+        session = SessionLocal()
+
+    try:
+        # Check if plans already exist (idempotent)
+        existing_count = session.query(SubscriptionPlan).count()
+        if existing_count > 0:
+            return 0  # Already seeded
+
+        plans = [
+            # Individual plans
+            SubscriptionPlan(
+                name="Free",
+                plan_type="individual",
+                billing_period="monthly",
+                price=Decimal("0.00"),
+                max_test_attempts_per_period=5,
+                feature_flags={
+                    "leaderboard": False,
+                    "analytics": "basic",
+                    "topic_analysis": False,
+                    "is_free": True,
+                },
+                is_active=True,
+            ),
+            SubscriptionPlan(
+                name="7-Day Premium Trial",
+                plan_type="individual",
+                billing_period="weekly",
+                price=Decimal("99.00"),
+                max_test_attempts_per_period=999,  # Unlimited during trial
+                feature_flags={
+                    "leaderboard": True,
+                    "analytics": "full",
+                    "topic_analysis": True,
+                    "trial_days": 7,
+                },
+                is_active=True,
+            ),
+            SubscriptionPlan(
+                name="Pro Monthly",
+                plan_type="individual",
+                billing_period="monthly",
+                price=Decimal("349.00"),
+                max_test_attempts_per_period=999,  # Unlimited
+                feature_flags={
+                    "leaderboard": True,
+                    "analytics": "full",
+                    "topic_analysis": True,
+                },
+                is_active=True,
+            ),
+            SubscriptionPlan(
+                name="Pro Yearly",
+                plan_type="individual",
+                billing_period="monthly",
+                price=Decimal("2999.00"),
+                max_test_attempts_per_period=999,  # Unlimited
+                feature_flags={
+                    "leaderboard": True,
+                    "analytics": "full",
+                    "topic_analysis": True,
+                    "billing_period_display": "yearly",
+                },
+                is_active=True,
+            ),
+            # Institution plans
+            SubscriptionPlan(
+                name="Institution Starter",
+                plan_type="institution",
+                billing_period="monthly",
+                price=Decimal("99.99"),
+                max_test_attempts_per_period=10,  # 10 per week
+                max_student_seats=50,
+                feature_flags={
+                    "leaderboard": True,
+                    "analytics": "full",
+                    "institution_dashboard": True,
+                },
+                is_active=True,
+            ),
+            SubscriptionPlan(
+                name="Institution Professional",
+                plan_type="institution",
+                billing_period="monthly",
+                price=Decimal("299.99"),
+                max_test_attempts_per_period=50,  # 50 per week
+                max_student_seats=200,
+                feature_flags={
+                    "leaderboard": True,
+                    "analytics": "full",
+                    "institution_dashboard": True,
+                },
+                is_active=True,
+            ),
+            SubscriptionPlan(
+                name="Institution Enterprise",
+                plan_type="institution",
+                billing_period="monthly",
+                price=Decimal("999.99"),
+                max_test_attempts_per_period=None,  # Unlimited
+                max_student_seats=None,  # Unlimited
+                feature_flags={
+                    "leaderboard": True,
+                    "analytics": "full",
+                    "institution_dashboard": True,
+                },
+                is_active=True,
+            ),
+        ]
+
+        session.add_all(plans)
+        session.commit()
+        print(f"Seeded {len(plans)} subscription plans")
+        return len(plans)
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        if owns_session:
+            session.close()
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     seed_admin()
+    seed_subscription_plans()
 
 
 if __name__ == "__main__":
     main()
 
 
-__all__ = ["seed_admin", "main"]
+__all__ = ["seed_admin", "seed_subscription_plans", "main"]
