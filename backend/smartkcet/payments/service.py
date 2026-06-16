@@ -270,12 +270,13 @@ def _activate_on_payment(
         print(f"[PAYMENT] subscription.plan_id = {sub.plan_id}")
 
         # Get the plan - billing.plan_id is the authoritative source (user's selection)
-        from sqlalchemy import cast, String
-        billing_plan_id_str = str(billing.plan_id) if billing.plan_id else None
+        billing_plan_id = billing.plan_id if billing.plan_id else None
+        # Convert UUID to string for query
+        billing_plan_id_str = str(billing_plan_id) if billing_plan_id else None
         print(f"[PAYMENT] Looking for Plan with id={billing_plan_id_str}")
         
         plan = db.query(SubscriptionPlan).filter(
-            cast(SubscriptionPlan.id, String) == billing_plan_id_str
+            SubscriptionPlan.id == billing_plan_id_str
         ).first() if billing_plan_id_str else None
         
         if not plan:
@@ -299,7 +300,9 @@ def _activate_on_payment(
         print(f"[PAYMENT]   setting plan_id = {billing.plan_id}")
         print(f"[PAYMENT]   duration = {duration}")
 
-        sub.plan_id               = billing.plan_id
+        # Convert plan_id to string before assigning to avoid UUID object issues
+        plan_id_to_assign = str(billing.plan_id) if billing.plan_id else None
+        sub.plan_id               = plan_id_to_assign
         sub.status                = "active"
         sub.start_date            = sub.start_date if sub.status != "expired" else now
         sub.current_period_start  = now
@@ -444,9 +447,14 @@ def create_student_order(
 
     Returns the data the frontend needs to open the Razorpay checkout modal.
     Works with test keys in dev mode — no code change needed for production.
+    
+    **IMPORTANT**: Only allows order creation for paid plans if user has NO active subscription.
+    Users with active subscriptions must wait for expiry before upgrading to paid plans.
+    FREE plan purchases are always allowed (student can downgrade anytime).
     """
     from ..db.models import User as UserModel
     from sqlalchemy import cast, String
+    from ..subscription.service import SubscriptionService
 
     logger.info(f"[create_student_order] user_id: {user_id}, plan_id: {plan_id}")
     
@@ -468,6 +476,16 @@ def create_student_order(
 
     if plan.plan_type != "individual":
         raise ValueError("Students can only subscribe to individual plans")
+
+    # Check if user has active subscription - ONLY block for PAID plans
+    # FREE plan can always be purchased (downgrade allowed)
+    if plan.price > 0:  # Paid plan (not Free)
+        subscription_service = SubscriptionService(db)
+        can_change, error_msg = subscription_service.can_change_subscription(user_id)
+        
+        if not can_change:
+            logger.warning(f"[create_student_order] User {user_id} has active subscription: {error_msg}")
+            raise ValueError(error_msg)
 
     user = db.query(UserModel).filter(UserModel.id == user_id).first()
     if not user:
@@ -581,16 +599,16 @@ def _activate_student_on_payment(
     """Activate / upgrade a student subscription after verified webhook."""
     from ..db.models import User as UserModel
     from datetime import timedelta
-    from sqlalchemy import cast, String
 
     sub  = db.query(Subscription).filter(Subscription.id == billing.subscription_id).first()
     
     # Use billing.plan_id if available (user's selection), fallback to sub.plan_id
     plan_id_to_use = billing.plan_id or sub.plan_id
+    # Convert UUID to string for query
     plan_id_str = str(plan_id_to_use) if plan_id_to_use else None
     
     plan = db.query(SubscriptionPlan).filter(
-        cast(SubscriptionPlan.id, String) == plan_id_str
+        SubscriptionPlan.id == plan_id_str
     ).first() if plan_id_str else None
 
     if not sub or not plan:
@@ -601,7 +619,9 @@ def _activate_student_on_payment(
     prev_status = sub.status
     duration    = _plan_duration(plan.billing_period)
 
-    sub.plan_id               = billing.plan_id or sub.plan_id
+    # Convert plan_id to string before assigning to avoid UUID object issues with SQLAlchemy
+    plan_id_to_assign = str(billing.plan_id) if billing.plan_id else (str(sub.plan_id) if sub.plan_id else None)
+    sub.plan_id               = plan_id_to_assign
     sub.status                = "active"
     sub.start_date            = sub.start_date if prev_status not in ("expired", "cancelled") else now
     sub.current_period_start  = now
@@ -685,14 +705,14 @@ def _activate_institution_sub(
     order_id: str,
 ) -> None:
     """Activate institution subscription (extracted for clarity)."""
-    from sqlalchemy import cast, String
     
     # Use billing.plan_id if available (user's selection), fallback to sub.plan_id
     plan_id_to_use = billing.plan_id or sub.plan_id
+    # Convert UUID to string for query
     plan_id_str = str(plan_id_to_use) if plan_id_to_use else None
     
     plan = db.query(SubscriptionPlan).filter(
-        cast(SubscriptionPlan.id, String) == plan_id_str
+        SubscriptionPlan.id == plan_id_str
     ).first() if plan_id_str else None
     
     if not plan:
@@ -703,7 +723,9 @@ def _activate_institution_sub(
     prev_status = sub.status
     duration    = _plan_duration(plan.billing_period)
 
-    sub.plan_id               = billing.plan_id or sub.plan_id
+    # Convert plan_id to string before assigning to avoid UUID object issues with SQLAlchemy
+    plan_id_to_assign = str(billing.plan_id) if billing.plan_id else (str(sub.plan_id) if sub.plan_id else None)
+    sub.plan_id               = plan_id_to_assign
     sub.status                = "active"
     sub.start_date            = sub.start_date if prev_status not in ("expired", "cancelled") else now
     sub.current_period_start  = now
