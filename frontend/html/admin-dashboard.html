@@ -392,6 +392,35 @@
 
     </div>
 
+    <!-- ── Direct Subscriber Students ───────────────────────────────────── -->
+    <div class="section-card" style="margin-top:20px;">
+      <div class="section-card-header">
+        <div class="section-nav">
+          <div>
+            <h3 style="margin:0;font-size:1rem;">Direct Subscriber Students</h3>
+            <p class="section-sub" style="margin:0;">Personal/independent students</p>
+          </div>
+        </div>
+      </div>
+      <div class="section-body" style="padding:0;">
+        <table class="results-table" id="directSubTable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>KCET ID</th>
+              <th>Email</th>
+              <th>Subscription Status</th>
+              <th>Joined</th>
+            </tr>
+          </thead>
+          <tbody id="directSubBody">
+            <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px;">Loading…</td></tr>
+          </tbody>
+        </table>
+        <div class="table-footer" id="directSubFooter" style="text-align:center;padding:8px;font-size:0.8rem;color:var(--muted);">—</div>
+      </div>
+    </div>
+
   </div><!-- /main-wrap -->
 
   <script src="../js/auth.js"></script>
@@ -461,6 +490,7 @@
           renderInstQuestions((data.question_bank || {}).institution_by_institution || []);
           renderActivity(data);
           renderRecentInstitutions(data.recent_institutions || []);
+          loadDirectSubscribers();
           document.getElementById('lastUpdated').textContent =
             'Last updated: ' + new Date().toLocaleTimeString();
         })
@@ -706,6 +736,48 @@
           '<td style="color:var(--muted);font-size:0.8rem;">' + date + '</td>' +
         '</tr>';
       }).join('');
+    }
+
+    // ── Direct subscriber students ───────────────────────────────────────────
+    function loadDirectSubscribers() {
+      fetch('/api/admin/direct-subscribers', { credentials: 'include' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          renderDirectSubscribers(data.students || []);
+        })
+        .catch(function (err) {
+          console.error('Direct subscribers load failed:', err);
+          var tbody = document.getElementById('directSubBody');
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px;">Failed to load</td></tr>';
+        });
+    }
+
+    function renderDirectSubscribers(students) {
+      var tbody = document.getElementById('directSubBody');
+      var footer = document.getElementById('directSubFooter');
+      
+      if (students.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px;">No direct subscriber students yet.</td></tr>';
+        footer.textContent = 'Showing 0 students';
+        return;
+      }
+
+      tbody.innerHTML = students.map(function (student) {
+        var subStatus = student.subscription_status || 'no_subscription';
+        var joinDate = student.created_at
+          ? new Date(student.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+          : '—';
+        
+        return '<tr>' +
+          '<td><strong>' + escapeHtml(student.name || '—') + '</strong></td>' +
+          '<td><code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;font-size:0.8rem;">' + escapeHtml(student.kcet_student_id || '—') + '</code></td>' +
+          '<td style="color:var(--muted);font-size:0.9rem;">' + escapeHtml(student.email || '—') + '</td>' +
+          '<td>' + statusBadge(subStatus) + '</td>' +
+          '<td style="color:var(--muted);font-size:0.9rem;">' + joinDate + '</td>' +
+        '</tr>';
+      }).join('');
+      
+      footer.textContent = 'Showing ' + students.length + ' direct subscriber ' + (students.length !== 1 ? 'students' : 'student');
     }
 
     // ── Wire up ───────────────────────────────────────────────────────────────
