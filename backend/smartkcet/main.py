@@ -62,10 +62,20 @@ STARTUP_CONFIG = validate_startup_config()
 
 # Validate Groq API key at startup (non-fatal — logs a warning if invalid
 # so the server still starts for non-generation features).
+# NOTE: groq library has critical compatibility issues on Python 3.14
+# (hangs during import), so we skip validation on that version
+import sys
 try:
-    from .rag.groq_client import validate_groq_api_key, reset_groq_client
-    reset_groq_client()  # Force fresh client on every server start
-    validate_groq_api_key()
+    if sys.version_info >= (3, 14):
+        import logging as _logging
+        _logging.getLogger("smartkcet.main").info(
+            "Python 3.14 detected: skipping Groq validation (library incompatible). "
+            "Generation features will be unavailable."
+        )
+    else:
+        from .rag.groq_client import validate_groq_api_key, reset_groq_client
+        reset_groq_client()  # Force fresh client on every server start
+        validate_groq_api_key()
 except Exception as _groq_err:
     import logging as _logging
     _logging.getLogger("smartkcet.main").warning(
@@ -76,6 +86,7 @@ except Exception as _groq_err:
 
 from .admin import router as admin_api_router  # noqa: E402
 from .auth import router as auth_router  # noqa: E402
+from .contact import router as contact_router  # noqa: E402
 from .institution import router as institution_router  # noqa: E402
 from .payments import router as payments_router  # noqa: E402
 from .routes.legacy import router as legacy_router  # noqa: E402
@@ -220,6 +231,30 @@ async def startup_scheduler():
             "Subscription plans seed failed (non-fatal): %s", _seed_err
         )
 
+    # Seed test institutions and students on first run (idempotent)
+    try:
+        from .db.seed_students import seed_test_institutions, seed_test_direct_subscribers, seed_test_institution_students, create_trial_subscriptions, create_institution_subscriptions
+        from sqlalchemy import func
+        from .db.subscription_models import Institution
+        
+        # Check if institutions already exist
+        existing_count = db.query(func.count(Institution.id)).scalar()
+        if existing_count == 0:
+            institutions = seed_test_institutions(db, count=3)
+            direct_students = seed_test_direct_subscribers(db, count=5)
+            institution_students = seed_test_institution_students(db, institutions, count_per_institution=5)
+            trial_subs = create_trial_subscriptions(db, direct_students)
+            inst_subs = create_institution_subscriptions(db, institutions)
+            
+            _log.getLogger("smartkcet.main").info(
+                "Test data seeded: %d institutions, %d direct students, %d institution students, %d trial subs, %d institution subs.",
+                len(institutions), len(direct_students), len(institution_students), trial_subs, inst_subs
+            )
+    except Exception as _test_data_err:
+        _log.getLogger("smartkcet.main").warning(
+            "Test data seed failed (non-fatal): %s", _test_data_err
+        )
+
     # SAFETY CHECK: Detect and fix incorrect USD/dev pricing (₹9.99, ₹99.99)
     # This prevents incorrect pricing from being served if database gets corrupted
     try:
@@ -286,6 +321,9 @@ async def api_health() -> dict[str, str]:
 # Auth_Service routes (task 2.x) under ``/api/auth``.
 app.include_router(auth_router)
 
+# Contact routes (support messages)
+app.include_router(contact_router)
+
 # Subscription routes (task 3.9) under ``/api/subscription``.
 app.include_router(subscription_router)
 
@@ -313,27 +351,30 @@ app.include_router(syllabus_public_router, prefix="/api", tags=["syllabus"])
 # HTML pages with role-aware redirects (REQ-3.3, REQ-3.4, REQ-4.7).
 app.include_router(pages_router)
 
-# Legacy ExamForge endpoints kept at their original paths for backward
-# compat during the refactor.  Renaming (``/api/admin/upload``,
-# ``/api/admin/generate``, ``/api/student/submit``) lands in tasks 4.x
-# and 8.x.
-app.include_router(legacy_router)
+# Static file serving using direct file reading instead of FileResponse
+# (Python 3.14 + anyio has event-loop issues with async file operations)
+from pathlib import Path as PathlibPath
+from fastapi.responses import Response
+_PROJECT_ROOT_STATIC = PathlibPath(__file__).resolve().parent.parent.parent
+_FRONTEND_DIR_STATIC = _PROJECT_ROOT_STATIC / "frontend"
 
-# ---------------------------------------------------------------------------
-# Static file serving for frontend CSS and JS assets.
-# Mounted AFTER routers so explicit route handlers take priority.
-# ---------------------------------------------------------------------------
+@app.get("/css/{filepath}")
+def serve_css(filepath: str):
+    file_path = _FRONTEND_DIR_STATIC / "css" / filepath
+    if file_path.exists() and file_path.is_file():
+        with open(file_path, "rb") as f:
+            content = f.read()
+        return Response(content, media_type="text/css")
+    return {"error": "not_found"}, 404
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-_FRONTEND_DIR = _PROJECT_ROOT / "frontend"
-
-# /css/* → frontend/css/
-if (_FRONTEND_DIR / "css").is_dir():
-    app.mount("/css", StaticFiles(directory=str(_FRONTEND_DIR / "css")), name="css")
-
-# /js/* → frontend/js/
-if (_FRONTEND_DIR / "js").is_dir():
-    app.mount("/js", StaticFiles(directory=str(_FRONTEND_DIR / "js")), name="js")
+@app.get("/js/{filepath}")
+def serve_js(filepath: str):
+    file_path = _FRONTEND_DIR_STATIC / "js" / filepath
+    if file_path.exists() and file_path.is_file():
+        with open(file_path, "rb") as f:
+            content = f.read()
+        return Response(content, media_type="text/javascript")
+    return {"error": "not_found"}, 404
 
 
 __all__ = ["app", "STARTUP_CONFIG"]

@@ -114,6 +114,19 @@ var Auth = (function () {
   }
 
   /**
+   * Register a new institution.
+   * POST /api/institution/register with institution_name, email, and password.
+   * Returns { ok, status, data } where data contains institution_id on success.
+   */
+  async function institutionRegister(institutionName, email, password) {
+    return _post('/api/institution/register', {
+      name: institutionName,
+      admin_email: email,
+      admin_password: password,
+    });
+  }
+
+  /**
    * Logout the current session.
    * POST /api/auth/logout, then redirect to /login.
    */
@@ -126,13 +139,22 @@ var Auth = (function () {
    * Get the current user's role by calling GET /api/auth/me.
    * Since the cookie is httpOnly, we cannot decode it client-side.
    * Returns { authenticated, role, sub, ... } on success, or null if not authenticated.
+   * On the login page, silently returns null on any error (including 401)
+   * to prevent redirect loops.
    */
   async function currentRole() {
-    var result = await _get('/api/auth/me');
-    if (result.ok && result.data && result.data.authenticated) {
-      return result.data;
+    try {
+      var result = await _get('/api/auth/me');
+      if (result.ok && result.data && result.data.authenticated) {
+        return result.data;
+      }
+      // On 401 or other errors, just return null (not authenticated)
+      return null;
+    } catch (e) {
+      // Fetch errors (network, etc) - silently return null
+      console.error('[Auth.currentRole] Error:', e);
+      return null;
     }
-    return null;
   }
 
   /**
@@ -168,6 +190,7 @@ var Auth = (function () {
     adminLogin: adminLogin,
     institutionLogin: institutionLogin,
     register: register,
+    institutionRegister: institutionRegister,
     logout: logout,
     currentRole: currentRole,
     redirectIfAuthenticated: redirectIfAuthenticated,

@@ -467,6 +467,21 @@
   border: 1px solid var(--s1);
   color: var(--text);
 }
+.kpi-grid .kpi-tile[data-status="inactive"] .kpi-icon {
+  background: rgba(104, 104, 160, 0.18);
+  color: var(--muted2);
+}
+.kpi-grid .kpi-tile[data-status="inactive"] .kpi-icon::after {
+  content: "−";
+  background: var(--muted);
+  color: #ffffff;
+}
+.kpi-grid .kpi-tile[data-status="inactive"] .kpi-value {
+  background: linear-gradient(135deg, var(--muted2), #9090c0);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
 .kpi-grid .kpi-tile[data-status="active"] .kpi-icon {
   background: rgba(5, 150, 105, 0.18);
   color: var(--green-l);

@@ -26,7 +26,7 @@ var SubscriptionBanner = (function () {
 
   // Status → banner copy/icon helpers (REQ-4.3 … 4.7)
   var STATUS_LABELS = {
-    trial:          'Free Trial Active',
+    trial:          'Trial Subscription Active',
     active:         'Pro Subscription Active',
     institution:    'Institution Access Active',
     overdue:        'Payment Overdue',

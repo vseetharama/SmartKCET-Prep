@@ -1221,9 +1221,7 @@ var InstitutionStudents = (function () {
     if (!els.invitationsTableBody || !els.invitationsTableWrapper) return;
 
     var list = Array.isArray(rows) ? rows : [];
-    // Show only pending (and not yet expired) invitations — task 10.3 scopes
-    // the table to actionable rows. Other statuses can still be returned by
-    // the backend but aren't useful to the admin here.
+    // Show only pending (and not yet expired) invitations
     var pending = list.filter(function (inv) {
       var s = String(_pickField(inv, 'status') || '').toLowerCase();
       return s === '' || s === 'pending';
@@ -1241,30 +1239,31 @@ var InstitutionStudents = (function () {
       return bd - ad;
     });
 
+    // Show total count of invitations
+    var countEl = document.querySelector('[data-invitations-count]');
+    if (countEl) {
+      countEl.textContent = pending.length;
+    }
+
     var html = '';
     for (var i = 0; i < pending.length; i++) {
       var inv = pending[i];
+      var sequenceNumber = _pickField(inv, 'sequence_number', 'sequenceNumber');
       var code = _pickField(inv, 'code') || '';
       var createdAt = _pickField(inv, 'created_at', 'createdAt');
       var expiresAt = _pickField(inv, 'expires_at', 'expiresAt');
       var status = _pickField(inv, 'status') || 'pending';
       var info = _invitationStatusInfo(status, expiresAt);
-      // Show the first 8 characters of the code (Requirement 10.9).
-      var codeShort = code ? String(code).slice(0, 8) : '—';
+      
+      // Display invitation number
+      var displayLabel = sequenceNumber ? 'Invitation #' + sequenceNumber : 'Invitation';
 
       html += '<tr data-code="' + _escapeHtml(code) + '">' +
-        '<td><code class="invitation-code-cell">' + _escapeHtml(codeShort) + '</code></td>' +
+        '<td><div class="code-cell-wrapper"><span class="invitation-number-label">' + _escapeHtml(displayLabel) + '</span><button type="button" class="btn-copy-code" data-code="' + _escapeHtml(code) + '" title="Copy full code" aria-label="Copy invitation code for ' + _escapeHtml(displayLabel) + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button></div></td>' +
         '<td>' + _escapeHtml(_formatInvitationDate(createdAt)) + '</td>' +
         '<td>' + _escapeHtml(_formatInvitationDate(expiresAt)) + '</td>' +
         '<td><span class="invitation-status-badge ' + info.cls + '">' +
           _escapeHtml(info.label) + '</span></td>' +
-        '<td style="text-align:right;">' +
-          '<button type="button" class="btn-institution-outline btn-revoke-invitation"' +
-            ' data-code="' + _escapeHtml(code) + '"' +
-            ' aria-label="Revoke invitation ' + _escapeHtml(codeShort) + '">' +
-            'Revoke' +
-          '</button>' +
-        '</td>' +
       '</tr>';
     }
 
@@ -1274,12 +1273,37 @@ var InstitutionStudents = (function () {
     if (els.invitationsError) els.invitationsError.style.display = 'none';
     els.invitationsTableWrapper.style.display = '';
 
-    // Wire revoke buttons. Use one click handler per row — they are
-    // re-created on every render so we don't need to track attachment.
-    var buttons = els.invitationsTableBody.querySelectorAll('.btn-revoke-invitation');
-    for (var j = 0; j < buttons.length; j++) {
-      buttons[j].addEventListener('click', _onRevokeClick);
+    // Wire copy code buttons. Copy the full invitation code to clipboard.
+    var copyButtons = els.invitationsTableBody.querySelectorAll('.btn-copy-code');
+    for (var k = 0; k < copyButtons.length; k++) {
+      copyButtons[k].addEventListener('click', _onCopyCodeClick);
     }
+  }
+
+  /**
+   * Handle copy button click in the pending invitations table.
+   * Copies the full invitation code to clipboard.
+   */
+  function _onCopyCodeClick(evt) {
+    evt.preventDefault();
+    var btn = evt.currentTarget;
+    var code = btn.getAttribute('data-code');
+    if (!code) return;
+
+    navigator.clipboard.writeText(code).then(function() {
+      // Visual feedback: change icon color to green briefly
+      var originalColor = btn.style.color;
+      btn.style.color = 'var(--green-l)';
+      btn.setAttribute('title', '✓ Copied!');
+      
+      setTimeout(function() {
+        btn.style.color = originalColor;
+        btn.setAttribute('title', 'Copy full code');
+      }, 2000);
+    }).catch(function(err) {
+      console.error('Failed to copy code:', err);
+      alert('Failed to copy code. Please try again.');
+    });
   }
 
   /**
@@ -1756,8 +1780,14 @@ if (typeof window !== 'undefined') {
 
   /**
    * Status label + tile-class for the Subscription Status KPI tile.
+   * When status is null, returns "No active subscription" with inactive key.
    */
   function _statusInfo(status) {
+    // Handle null/undefined status explicitly
+    if (status === null || status === undefined) {
+      return { label: 'No active subscription', key: 'inactive' };
+    }
+    
     switch ((status || '').toLowerCase()) {
       case 'trial':        return { label: 'Active',       key: 'active'       };
       case 'active':       return { label: 'Active',       key: 'active'       };
@@ -2066,6 +2096,9 @@ if (typeof window !== 'undefined') {
    * For "expired" / "cancelled" states the banner remains inline (the
    * dashboard error state covers truly fatal cases); the visual urgency
    * is conveyed by the `data-status` attribute (red treatment).
+   *
+   * For newly registered institutions with no subscription yet (status = null),
+   * no alert is displayed.
    */
   function _renderAlertBanner(status, daysRemaining) {
     var banner = $(IDS.alertBanner);
@@ -2076,7 +2109,11 @@ if (typeof window !== 'undefined') {
     var messageText = '';
     var actionText = 'Pay Now';
 
-    if (s === 'overdue' || s === 'grace_period') {
+    if (!status) {
+      // No subscription yet (newly registered) — no alert needed.
+      hide(IDS.alertBanner);
+      return;
+    } else if (s === 'overdue' || s === 'grace_period') {
       titleText = 'Payment Overdue';
       messageText = (typeof daysRemaining === 'number' && daysRemaining >= 0)
         ? "Your institution's access will be suspended in " +
@@ -2126,8 +2163,8 @@ if (typeof window !== 'undefined') {
     setText(IDS.kpiTestsThisMonth, _formatUsageOverLimit(testsThisMonth, monthlyTestLimit));
 
     // Subscription Status — label + status-coloured tile via data-status.
-    var status = _pick(data, 'subscription_status', 'status') || 'active';
-    var info = _statusInfo(status);
+    var status = _pick(data, 'subscription_status', 'status');
+    var info = _statusInfo(status);  // This will handle null/undefined properly
     setText(IDS.kpiSubscriptionStatus, info.label);
     var tile = $(IDS.kpiTileStatus);
     if (tile) tile.setAttribute('data-status', info.key);
@@ -2229,6 +2266,81 @@ if (typeof window !== 'undefined') {
     hide(IDS.loading);
     hide(IDS.error);
     show(IDS.content);
+
+    // Dashboard is always visible, even without subscription.
+    // Access control to features (upload, questions, exams, etc.) is handled by
+    // institution-access-control.js which blocks access when trying to navigate to
+    // protected pages. Users can view dashboard KPIs and alerts but cannot use
+    // feature pages until they have an active subscription.
+  }
+
+  /**
+   * Show the subscription selection modal when institution has no active subscription.
+   * Modal is non-dismissible (cannot close without selecting a plan).
+   */
+  function _showSubscriptionModal() {
+    // Fade out the dashboard content and show modal overlay
+    var contentEl = $(IDS.content);
+    if (contentEl) {
+      contentEl.style.opacity = '0.3';
+      contentEl.style.pointerEvents = 'none';
+    }
+
+    // Create modal overlay if it doesn't exist
+    var existingOverlay = document.getElementById('institutionSubscriptionBlocker');
+    if (!existingOverlay) {
+      var overlay = document.createElement('div');
+      overlay.id = 'institutionSubscriptionBlocker';
+      overlay.style.cssText = `
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(8px);
+        z-index: 300;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      `;
+
+      var dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: var(--s1);
+        border: 1px solid var(--border2);
+        border-radius: 14px;
+        padding: 36px;
+        max-width: 480px;
+        width: 100%;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      `;
+      dialog.innerHTML = `
+        <div style="text-align: center; margin-bottom: 28px;">
+          <div style="font-size: 2.8rem; margin-bottom: 12px;">📋</div>
+          <h2 style="font-size: 1.4rem; font-weight: 800; margin: 0 0 6px;">No Active Subscription</h2>
+          <p style="color: var(--muted); font-size: 0.88rem; margin: 0;">Please select a subscription plan to access features</p>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <button class="btn-institution" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;" id="selectPlanBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+            Select a Plan
+          </button>
+        </div>
+      `;
+
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      // Wire the select plan button
+      var selectBtn = document.getElementById('selectPlanBtn');
+      if (selectBtn) {
+        selectBtn.addEventListener('click', function () {
+          // Navigate to subscription management page
+          window.location.href = '/institution/subscription';
+        });
+      }
+    } else {
+      existingOverlay.style.display = 'flex';
+    }
   }
 
   // ── Public entry point ───────────────────────────────────────────────────
@@ -2299,6 +2411,106 @@ if (typeof window !== 'undefined') {
     }
   }
 
+  // ── Students Modal ───────────────────────────────────────────────────────
+
+  /**
+   * Open the students list modal showing institution-linked and direct subscribers
+   */
+  function _openStudentsModal() {
+    var modal = $('studentsModal');
+    if (!modal) return;
+    modal.setAttribute('aria-hidden', 'false');
+    modal.style.display = 'flex';
+    _loadStudentsList();
+  }
+
+  /**
+   * Close the students list modal
+   */
+  function _closeStudentsModal() {
+    var modal = $('studentsModal');
+    if (!modal) return;
+    modal.setAttribute('aria-hidden', 'true');
+    modal.style.display = 'none';
+  }
+
+  /**
+   * Load and display all students from the API
+   */
+  function _loadStudentsList() {
+    fetch('/api/institution/students', {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        'Accept': 'application/json'
+      }
+    })
+    .then(function (res) {
+      if (!res.ok) throw new Error('Failed to load students: ' + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      _renderStudentsList(data);
+    })
+    .catch(function (err) {
+      console.error('Error loading students:', err);
+      var tbody = $('institutionStudentsBody');
+      if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--red-l); padding: 20px;">Failed to load students</td></tr>';
+      }
+    });
+  }
+
+  /**
+   * Render students list in the modal
+   */
+  function _renderStudentsList(data) {
+    // Institution students
+    var institutionData = data.institution || {};
+    var institutionName = institutionData.name || 'Institution';
+    var institutionStudents = institutionData.students || [];
+    
+    var nameEl = $('institutionName');
+    if (nameEl) nameEl.textContent = institutionName;
+
+    var tbody = $('institutionStudentsBody');
+    if (tbody) {
+      if (institutionStudents.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--muted); padding: 20px;">No institution students</td></tr>';
+      } else {
+        tbody.innerHTML = institutionStudents.map(function (student) {
+          return '<tr>' +
+            '<td>' + _escapeHtml(student.name) + '</td>' +
+            '<td><code style="font-size: 0.9rem; color: var(--purple-l, #a78bfa);">' + _escapeHtml(student.email) + '</code></td>' +
+            '<td><strong style="color: var(--purple-l, #a78bfa);">' + _escapeHtml(student.id) + '</strong></td>' +
+            '</tr>';
+        }).join('');
+      }
+    }
+
+    // Direct subscribers
+    var directSubscribers = data.direct_subscribers || [];
+    tbody = $('directSubscribersBody');
+    if (tbody) {
+      if (directSubscribers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--muted); padding: 20px;">No direct subscribers</td></tr>';
+      } else {
+        tbody.innerHTML = directSubscribers.map(function (student) {
+          return '<tr>' +
+            '<td>' + _escapeHtml(student.name) + '</td>' +
+            '<td><code style="font-size: 0.9rem; color: var(--green-l, #86efac);">' + _escapeHtml(student.email) + '</code></td>' +
+            '<td><strong style="color: var(--green-l, #86efac);">' + _escapeHtml(student.id) + '</strong></td>' +
+            '</tr>';
+        }).join('');
+      }
+    }
+
+    // Update counts
+    setText('institutionStudentCount', institutionStudents.length);
+    setText('directSubscriberCount', directSubscribers.length);
+    setText('totalStudentCount', institutionStudents.length + directSubscribers.length);
+  }
+
   // ── Wiring ───────────────────────────────────────────────────────────────
 
   function _wireButtons() {
@@ -2315,6 +2527,32 @@ if (typeof window !== 'undefined') {
       retryBtn._wired = true;
       retryBtn.addEventListener('click', function () {
         loadInstitutionDashboard();
+      });
+    }
+
+    // Wire Total Students KPI to open modal
+    var kpiTileStudents = $('kpiTileStudents');
+    if (kpiTileStudents && !kpiTileStudents._wired) {
+      kpiTileStudents._wired = true;
+      kpiTileStudents.style.cursor = 'pointer';
+      kpiTileStudents.addEventListener('click', _openStudentsModal);
+    }
+
+    // Wire modal close button
+    var modalClose = $('studentsModalClose');
+    if (modalClose && !modalClose._wired) {
+      modalClose._wired = true;
+      modalClose.addEventListener('click', _closeStudentsModal);
+    }
+
+    // Wire modal backdrop to close
+    var modal = $('studentsModal');
+    if (modal && !modal._wired) {
+      modal._wired = true;
+      modal.addEventListener('click', function (e) {
+        if (e.target === modal) {
+          _closeStudentsModal();
+        }
       });
     }
   }

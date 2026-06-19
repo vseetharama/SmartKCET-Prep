@@ -6,16 +6,27 @@
   <title>SmartKCET Admin — Subscriptions</title>
   <link rel="stylesheet" href="../css/style.css"/>
   <style>
+    .main-wrap { max-width: 100%; }
     .sub-table td { white-space:normal;word-break:break-word;vertical-align:top; }
     .sub-table { table-layout:fixed; }
-    .sub-table col.col-inst   { width:22%; }
-    .sub-table col.col-plan   { width:14%; }
-    .sub-table col.col-type   { width:9%; }
+    .sub-table col.col-inst   { width:20%; }
+    .sub-table col.col-plan   { width:12%; }
+    .sub-table col.col-type   { width:8%; }
     .sub-table col.col-status { width:10%; }
-    .sub-table col.col-start  { width:12%; }
-    .sub-table col.col-renew  { width:12%; }
-    .sub-table col.col-price  { width:9%; }
-    .sub-table col.col-acts   { width:12%; }
+    .sub-table col.col-start  { width:11%; }
+    .sub-table col.col-renew  { width:11%; }
+    .sub-table col.col-price  { width:10%; }
+    .sub-table col.col-acts   { width:18%; }
+    
+    /* Plan tables - ensure features column wraps properly */
+    table.results-table td { white-space: normal; word-break: break-word; vertical-align: top; overflow-wrap: break-word; }
+    table.results-table td:last-child { white-space: nowrap; text-align: center; }
+    
+    /* Plans table feature column - allow full content display */
+    table.plans-table { table-layout: fixed; }
+    table.plans-table td { word-wrap: break-word; overflow-wrap: break-word; hyphens: auto; }
+    table.plans-table tbody td { font-size: 0.75rem; line-height: 1.4; }
+    table.plans-table tbody td:nth-child(6) { max-width: none; word-break: break-word; }
   </style>
 </head>
 <body>
@@ -63,7 +74,20 @@
     </div>
   </nav>
 
-  <div class="main-wrap">
+
+  <div class="main-wrap" style="max-width:100%;padding:24px 28px 80px;">
+
+    <!-- Page header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <div>
+        <h1 style="font-size:1.6rem;font-weight:800;margin:0 0 3px;">Subscriptions Management</h1>
+        <p style="color:var(--muted);margin:0;font-size:0.82rem;">Monitor all active and inactive subscriptions for institutions and direct subscribers</p>
+      </div>
+      <button class="btn-outline" style="display:flex;align-items:center;gap:6px;" onclick="location.reload()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+        Refresh
+      </button>
+    </div>
 
     <!-- Summary tiles -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px;" id="subTiles">
@@ -87,15 +111,17 @@
 
     <!-- Institution subscriptions table -->
     <div class="section-card">
-      <div class="section-card-header">
-        <div class="section-icon" style="background:linear-gradient(135deg,rgba(5,150,105,0.2),rgba(8,145,178,0.2));">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+      <div class="section-card-header" style="flex-direction:column;align-items:flex-start;">
+        <div style="display:flex;align-items:center;gap:12px;width:100%;">
+          <div class="section-icon" style="background:linear-gradient(135deg,rgba(5,150,105,0.2),rgba(8,145,178,0.2));">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          </div>
+          <div>
+            <h2 style="margin:0;">Institution Subscriptions</h2>
+            <p class="section-sub" style="margin:2px 0 0;">All institution subscription records — plan, status, and renewal</p>
+          </div>
         </div>
-        <div>
-          <h2>Institution Subscriptions</h2>
-          <p class="section-sub">All institution subscription records — plan, status, and renewal</p>
-        </div>
-        <div style="margin-left:auto;">
+        <div style="align-self:flex-end;margin-top:0;">
           <select id="filterSubStatus" class="text-input" style="min-width:140px;">
             <option value="">All Statuses</option>
             <option value="active">Active</option>
@@ -104,7 +130,6 @@
             <option value="grace_period">Grace Period</option>
             <option value="expired">Expired</option>
             <option value="cancelled">Cancelled</option>
-            <option value="none">No Subscription</option>
           </select>
         </div>
       </div>
@@ -135,27 +160,112 @@
       </div>
     </div>
 
-    <!-- Subscription Plans -->
+    <!-- Direct Subscriber Subscriptions -->
     <div class="section-card" style="margin-top:20px;">
-      <div class="section-card-header">
-        <div class="section-icon" style="background:linear-gradient(135deg,rgba(124,58,237,0.2),rgba(37,99,235,0.2));">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      <div class="section-card-header" style="flex-direction:column;align-items:flex-start;">
+        <div style="display:flex;align-items:center;gap:12px;width:100%;">
+          <div class="section-icon" style="background:linear-gradient(135deg,rgba(37,99,235,0.2),rgba(124,58,237,0.2));">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <div>
+            <h2 style="margin:0;">Direct Subscriber Subscriptions</h2>
+            <p class="section-sub" style="margin:2px 0 0;">Individual student subscriptions (non-institution-linked) — manage and monitor</p>
+          </div>
         </div>
-        <div>
-          <h2>Subscription Plans</h2>
-          <p class="section-sub">Available plans in the system</p>
+        <div style="align-self:flex-end;margin-top:0;">
+          <select id="filterDirectStatus" class="text-input" style="min-width:140px;">
+            <option value="">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="trial">Trial</option>
+            <option value="overdue">Overdue</option>
+            <option value="grace_period">Grace Period</option>
+            <option value="expired">Expired</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
         </div>
       </div>
+
       <div class="section-body" style="padding:0;">
         <div class="table-scroll">
-          <table class="results-table">
+          <table class="results-table" style="table-layout:fixed;">
+            <colgroup>
+              <col style="width:14%;"/><col style="width:12%;"/><col style="width:14%;"/>
+              <col style="width:10%;"/><col style="width:10%;"/><col style="width:10%;"/>
+              <col style="width:10%;"/><col style="width:10%;"/><col style="width:10%;"/>
+            </colgroup>
             <thead>
-              <tr><th>Plan Name</th><th>Type</th><th>Billing</th><th>Price</th><th>Max Seats</th><th>Max Tests</th><th>Active</th></tr>
+              <tr>
+                <th>Student Name</th><th>KCET ID</th><th>Email</th>
+                <th>Plan</th><th>Status</th><th>Start Date</th>
+                <th>Renewal</th><th>Price</th><th>Actions</th>
+              </tr>
             </thead>
-            <tbody id="plansTableBody">
-              <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:32px;">Loading…</td></tr>
+            <tbody id="directSubTableBody">
+              <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px;">Loading…</td></tr>
             </tbody>
           </table>
+        </div>
+        <div style="padding:12px 20px;border-top:1px solid var(--border);">
+          <span id="directTableFooter" style="font-size:0.82rem;color:var(--muted);">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Subscription Plans -->
+    <div class="section-card" style="margin-top:20px;">
+      <div class="section-card-header" style="flex-direction:column;align-items:flex-start;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div class="section-icon" style="background:linear-gradient(135deg,rgba(124,58,237,0.2),rgba(37,99,235,0.2));">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          </div>
+          <div>
+            <h2 style="margin:0;">Subscription Plans</h2>
+            <p class="section-sub" style="margin:2px 0 0;">Available plans in the system</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Direct Subscriber Plans -->
+      <div style="margin-bottom:20px;">
+        <h3 style="margin:16px 20px 0;font-size:0.95rem;color:var(--text);">Individual/Direct Subscriber Plans</h3>
+        <div class="section-body" style="padding:0;">
+          <div class="table-scroll">
+            <table class="results-table plans-table" style="table-layout:fixed;">
+              <colgroup>
+                <col style="width:14%;"/><col style="width:10%;"/><col style="width:10%;"/>
+                <col style="width:10%;"/><col style="width:10%;"/><col style="width:26%;"/>
+                <col style="width:10%;"/>
+              </colgroup>
+              <thead>
+                <tr><th>Plan Name</th><th>Billing</th><th>Price</th><th>Max Tests</th><th>Max Exams</th><th>Features</th><th>Active</th></tr>
+              </thead>
+              <tbody id="directPlansTableBody">
+                <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Institution Plans -->
+      <div>
+        <h3 style="margin:16px 20px 0;font-size:0.95rem;color:var(--text);">Institution Plans</h3>
+        <div class="section-body" style="padding:0;">
+          <div class="table-scroll">
+            <table class="results-table plans-table" style="table-layout:fixed;">
+              <colgroup>
+                <col style="width:14%;"/><col style="width:10%;"/><col style="width:10%;"/>
+                <col style="width:10%;"/><col style="width:10%;"/><col style="width:26%;"/>
+                <col style="width:10%;"/>
+              </colgroup>
+              <thead>
+                <tr><th>Plan Name</th><th>Billing</th><th>Price</th><th>Max Seats</th><th>Max Tests</th><th>Features</th><th>Active</th></tr>
+              </thead>
+              <tbody id="institutionPlansTableBody">
+                <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -171,6 +281,9 @@
       if (!user || (user.role !== 'admin' && user.role !== 'platform_admin')) {
         window.location.href = '/login';
       }
+    }).catch(function(err) {
+      console.log('[admin-subscriptions] Auth check failed:', err);
+      window.location.href = '/login';
     });
 
     document.getElementById('logoutBtn').addEventListener('click', function(e) {
@@ -211,11 +324,15 @@
     }
 
     var allSubData = [];
+    var allDirectSubData = [];
 
     function loadData() {
-      // Load dashboard data for subscription summary
+      // Load summary data
       fetch('/api/admin/dashboard', { credentials: 'include' })
-        .then(function(r) { return r.json(); })
+        .then(function(r) { 
+          if (!r.ok) throw new Error('Dashboard API error: ' + r.status);
+          return r.json(); 
+        })
         .then(function(data) {
           var ov = data.overview || {};
           document.getElementById('tilActive').textContent = ov.active_subscriptions || 0;
@@ -223,37 +340,199 @@
           document.getElementById('tilExpired').textContent = ov.expired_subscriptions || 0;
           var noSubs = (ov.total_institutions || 0) - (ov.active_institutions || 0);
           document.getElementById('tilNone').textContent = noSubs;
+        })
+        .catch(function(err) {
+          console.error('Error loading dashboard:', err);
+        });
 
-          allSubData = data.institution_subscriptions || [];
+      // Load institution subscriptions with pricing
+      fetch('/api/admin/platform/institutions', { credentials: 'include' })
+        .then(function(r) { 
+          if (!r.ok) {
+            console.error('Institutions API error:', r.status, r.statusText);
+            var errMsg = 'API error: ' + r.status;
+            if (r.status === 403) errMsg += ' (Forbidden)';
+            if (r.status === 401) errMsg += ' (Unauthorized)';
+            throw new Error(errMsg);
+          }
+          return r.json(); 
+        })
+        .then(function(data) {
+          console.log('Institutions loaded:', data);
+          var institutions = data.institutions || [];
+          
+          // Transform institutions data to subscription format with proper pricing
+          var subData = institutions.map(function(inst) {
+            var planName = inst.plan_name || 'Starter';
+            // Pricing map - map plan names to their prices
+            var planPrices = {
+              'Free': 0,
+              '7-Day Premium Trial': 99,
+              'Pro Monthly': 349,
+              'Pro Yearly': 2999,
+              'Starter': 1499,
+              'Basic': 2999,
+              'Premium': 7999,
+              'Enterprise': 0,  // Contact for pricing
+            };
+            var price = planPrices[planName] !== undefined ? planPrices[planName] : 1499; // Default to Starter price
+            
+            return {
+              institution_name: inst.name,
+              plan_name: planName,
+              subscription_status: inst.subscription_status,
+              start_date: inst.registered_at,
+              next_renewal_date: inst.next_renewal_date,
+              price: price,
+              institution_id: inst.id,
+            };
+          });
+          allSubData = subData;
           renderSubTable(allSubData);
         })
-        .catch(function() {
+        .catch(function(err) {
+          console.error('Error loading institutions:', err);
           document.getElementById('subTableBody').innerHTML =
-            '<tr><td colspan="8" style="text-align:center;color:var(--red-l);padding:32px;">Failed to load data.</td></tr>';
+            '<tr><td colspan="8" style="text-align:center;color:var(--red-l);padding:32px;">⚠️ Failed: ' + escapeHtml(err.message || 'Unknown error') + '</td></tr>';
+        });
+
+      // Load direct subscriber subscriptions
+      fetch('/api/admin/platform/direct-subscriptions', { credentials: 'include' })
+        .then(function(r) { 
+          if (!r.ok) {
+            console.error('Direct subscriptions API error:', r.status, r.statusText);
+            var errMsg = 'API error: ' + r.status;
+            if (r.status === 403) errMsg += ' (Forbidden)';
+            if (r.status === 401) errMsg += ' (Unauthorized)';
+            throw new Error(errMsg);
+          }
+          return r.json(); 
+        })
+        .then(function(data) {
+          console.log('Direct subscriptions loaded:', data);
+          allDirectSubData = data.subscriptions || [];
+          renderDirectSubTable(allDirectSubData);
+        })
+        .catch(function(err) {
+          console.error('Error loading direct subscriptions:', err);
+          document.getElementById('directSubTableBody').innerHTML =
+            '<tr><td colspan="9" style="text-align:center;color:var(--red-l);padding:32px;">⚠️ Failed: ' + escapeHtml(err.message || 'Unknown error') + '</td></tr>';
         });
 
       // Load subscription plans
       fetch('/api/admin/platform/subscription-plans', { credentials: 'include' })
-        .then(function(r) { return r.json(); })
-        .then(function(plans) {
-          var tbody = document.getElementById('plansTableBody');
-          if (!plans || plans.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">No plans configured.</td></tr>';
-            return;
+        .then(function(r) { 
+          if (!r.ok) {
+            console.error('Plans API error:', r.status, r.statusText);
+            var errMsg = 'API error: ' + r.status;
+            if (r.status === 403) errMsg += ' (Forbidden - check if logged in as platform_admin)';
+            if (r.status === 401) errMsg += ' (Unauthorized - session expired)';
+            throw new Error(errMsg);
           }
-          tbody.innerHTML = plans.map(function(p) {
-            return '<tr>' +
-              '<td style="font-weight:600;">' + escapeHtml(p.name) + '</td>' +
-              '<td><span class="score-badge">' + escapeHtml(p.plan_type || '—') + '</span></td>' +
-              '<td style="color:var(--muted);">' + escapeHtml(p.billing_period || '—') + '</td>' +
-              '<td style="font-weight:600;">' + fmtPrice(p.price) + '</td>' +
-              '<td style="text-align:center;">' + (p.max_student_seats || '∞') + '</td>' +
-              '<td style="text-align:center;">' + (p.max_test_attempts_per_period || '∞') + '</td>' +
-              '<td style="text-align:center;">' + (p.is_active ? '✅' : '❌') + '</td>' +
-            '</tr>';
-          }).join('');
+          return r.json(); 
         })
-        .catch(function() {});
+        .then(function(plans) {
+          console.log('Plans loaded:', plans);
+          var directPlans = plans.filter(function(p) { return p.plan_type === 'individual'; });
+          var instPlans = plans.filter(function(p) { return p.plan_type === 'institution'; });
+          
+          renderPlansTable('directPlansTableBody', directPlans, 'direct');
+          renderPlansTable('institutionPlansTableBody', instPlans, 'institution');
+        })
+        .catch(function(err) {
+          console.error('Error loading plans:', err);
+          var errHTML = '<tr><td colspan="7" style="text-align:center;color:var(--red-l);padding:24px;">⚠️ Failed to load: ' + escapeHtml(err.message || 'Unknown error') + '</td></tr>';
+          document.getElementById('directPlansTableBody').innerHTML = errHTML;
+          document.getElementById('institutionPlansTableBody').innerHTML = errHTML;
+        });
+    }
+
+    function renderPlansTable(tableId, plans, type) {
+      var tbody = document.getElementById(tableId);
+      
+      if (!plans || plans.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--red-l);padding:24px;"><div style="margin-bottom:8px;">⚠️ No plans available</div><p style="font-size:0.8rem;color:var(--muted2);margin:0;">If this persists, plans may not have been seeded on startup.</p></td></tr>';
+        return;
+      }
+      
+      var getFeatures = function(flags) {
+        if (!flags || Object.keys(flags).length === 0) return '—';
+        var features = [];
+        
+        // Map feature flags to readable feature names
+        var featureName = {
+          // Individual plan features
+          'mock_tests_5': '3–5 mock tests',
+          'mock_tests_unlimited': 'Unlimited mock tests',
+          'practice_exams_3': 'Limited practice exams',
+          'practice_exams_unlimited': 'Unlimited practice exams',
+          'ai_analytics': 'AI analytics',
+          'kcet_question_bank': 'KCET question bank',
+          'leaderboard': 'Leaderboard ranking',
+          'performance_reports': 'Performance reports',
+          'ai_recommendations': 'AI recommendations',
+          'priority_access': 'Priority access',
+          // Institution plan features
+          'institution_uploads': 'Institution uploads',
+          'institution_question_bank': 'Institution Q bank',
+          'chapter_tests': 'Chapter-wise tests',
+          'chapter_wise_tests': 'Chapter-wise tests',
+          'chapter_wise_exams': 'Chapter-wise exams',
+          'analytics': 'Analytics',
+          'basic_analytics': 'Basic analytics',
+          'advanced_analytics': 'Advanced analytics',
+          'branding': 'Institution branding',
+          'priority_support': 'Priority support',
+        };
+        
+        Object.keys(flags).forEach(function(key) {
+          var val = flags[key];
+          var name = featureName[key];
+          
+          if (!name) return;
+          
+          // Handle different value types
+          if (val === true) {
+            features.push('✅ ' + name);
+          } else if (val === false) {
+            // Skip false values in feature list
+          } else if (typeof val === 'string' && val.length > 0) {
+            // For string values like 'Basic', 'Advanced', 'Full', 'Custom', 'Dedicated Support'
+            features.push('✅ ' + name + ': ' + val);
+          }
+        });
+        
+        return features.length > 0 ? features.join(' | ') : '—';
+      };
+      
+      if (type === 'direct') {
+        tbody.innerHTML = plans.map(function(p) {
+          var maxTests = p.max_test_attempts_per_period === null ? '∞' : p.max_test_attempts_per_period;
+          var maxExams = p.max_test_attempts_per_period === null ? '∞' : p.max_test_attempts_per_period;
+          
+          return '<tr>' +
+            '<td style="font-weight:600;font-size:0.87rem;">' + escapeHtml(p.name) + '</td>' +
+            '<td style="color:var(--muted);">' + escapeHtml(p.billing_period || '—') + '</td>' +
+            '<td style="font-weight:600;">' + fmtPrice(p.price) + '</td>' +
+            '<td style="text-align:center;font-size:0.85rem;">' + maxTests + '</td>' +
+            '<td style="text-align:center;font-size:0.85rem;">' + maxExams + '</td>' +
+            '<td style="font-size:0.75rem;color:var(--muted2);word-wrap:break-word;word-break:break-word;">' + getFeatures(p.feature_flags) + '</td>' +
+            '<td style="text-align:center;">' + (p.is_active ? '✅' : '❌') + '</td>' +
+          '</tr>';
+        }).join('');
+      } else if (type === 'institution') {
+        tbody.innerHTML = plans.map(function(p) {
+          return '<tr>' +
+            '<td style="font-weight:600;font-size:0.87rem;">' + escapeHtml(p.name) + '</td>' +
+            '<td style="color:var(--muted);">' + escapeHtml(p.billing_period || '—') + '</td>' +
+            '<td style="font-weight:600;">' + fmtPrice(p.price) + '</td>' +
+            '<td style="text-align:center;font-size:0.85rem;">' + (p.max_student_seats || '∞') + '</td>' +
+            '<td style="text-align:center;font-size:0.85rem;">' + (p.max_test_attempts_per_period || '∞') + '</td>' +
+            '<td style="font-size:0.75rem;color:var(--muted2);word-wrap:break-word;word-break:break-word;">' + getFeatures(p.feature_flags) + '</td>' +
+            '<td style="text-align:center;">' + (p.is_active ? '✅' : '❌') + '</td>' +
+          '</tr>';
+        }).join('');
+      }
     }
 
     function renderSubTable(rows) {
@@ -274,7 +553,7 @@
           '<td style="font-size:0.82rem;color:var(--muted2);">' + escapeHtml(row.plan_name || '—') + '</td>' +
           '<td style="font-size:0.8rem;color:var(--muted);">Institution</td>' +
           '<td>' + statusBadge(row.subscription_status) + '</td>' +
-          '<td style="font-size:0.8rem;color:var(--muted);">—</td>' +
+          '<td style="font-size:0.8rem;color:var(--muted);">' + fmtDate(row.start_date) + '</td>' +
           '<td style="font-size:0.8rem;">' + fmtDate(row.next_renewal_date) + '</td>' +
           '<td style="font-size:0.85rem;font-weight:600;">' + fmtPrice(row.price) + '</td>' +
           '<td>' +
@@ -284,8 +563,41 @@
       }).join('');
     }
 
+    function renderDirectSubTable(rows) {
+      var filterStatus = document.getElementById('filterDirectStatus').value;
+      var filtered = filterStatus ? rows.filter(function(r) { return r.status === filterStatus; }) : rows;
+
+      document.getElementById('directTableFooter').textContent = filtered.length + ' records';
+      var tbody = document.getElementById('directSubTableBody');
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:32px;">No matching records.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(function(row) {
+        return '<tr>' +
+          '<td style="font-weight:600;font-size:0.87rem;">' + escapeHtml(row.student_name) + '</td>' +
+          '<td style="font-size:0.82rem;color:var(--muted);">' + escapeHtml(row.kcet_student_id || '—') + '</td>' +
+          '<td style="font-size:0.82rem;color:var(--muted2);">' + escapeHtml(row.email) + '</td>' +
+          '<td style="font-size:0.8rem;color:var(--muted2);">' + escapeHtml(row.plan_name || '—') + '</td>' +
+          '<td>' + statusBadge(row.status) + '</td>' +
+          '<td style="font-size:0.8rem;color:var(--muted);">' + fmtDate(row.start_date) + '</td>' +
+          '<td style="font-size:0.8rem;">' + fmtDate(row.next_renewal_date) + '</td>' +
+          '<td style="font-size:0.85rem;font-weight:600;">' + fmtPrice(row.price) + '</td>' +
+          '<td>' +
+            '<button class="btn-outline small" onclick="window.location.href=\'/admin/student-manage?user_id=' + row.user_id + '\'">Manage</button>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+    }
+
     document.getElementById('filterSubStatus').addEventListener('change', function() {
       renderSubTable(allSubData);
+    });
+
+    document.getElementById('filterDirectStatus').addEventListener('change', function() {
+      renderDirectSubTable(allDirectSubData);
     });
 
     loadData();

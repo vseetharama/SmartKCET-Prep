@@ -84,19 +84,65 @@
       </form>
 
       <p style="margin-top:20px;text-align:center;font-size:0.85rem;color:var(--muted);">
-        Don't have an account? <a href="/register" style="color:var(--purple-l);">Register</a>
+        Don't have an account? <a href="#" id="registerLink" style="color:var(--purple-l);">Register</a>
       </p>
     </div>
   </main>
 
+  <!-- Subscription Selection Modal (injected into page) -->
+  <div id="subscriptionModalContainer"></div>
+
+  <!-- Subscription Selection Modal -->
+  <link rel="stylesheet" href="../css/subscription-modal-premium.css"/>
+
   <script src="../js/auth.js"></script>
+  <script src="../js/subscription-modal.js"></script>
   <script>
+  // Inject subscription modal HTML into the page on page load
+  (function() {
+    function injectModal() {
+      var container = document.getElementById('subscriptionModalContainer');
+      if (!container) return;
+      
+      fetch('../html/subscription_modal.html')
+        .then(function(res) { return res.text(); })
+        .then(function(html) {
+          container.innerHTML = html;
+          console.log('[login] Subscription modal injected');
+          // Re-init subscription modal module
+          if (typeof SubscriptionModal !== 'undefined' && typeof SubscriptionModal.init === 'function') {
+            SubscriptionModal.init();
+          }
+        })
+        .catch(function(err) {
+          console.error('[login] Failed to load subscription modal:', err);
+        });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', injectModal);
+    } else {
+      injectModal();
+    }
+  })();
+
   (function () {
     var form      = document.getElementById('loginForm');
     var errorEl   = document.getElementById('loginError');
     var loginBtn  = document.getElementById('loginBtn');
     var tabs      = document.querySelectorAll('.role-tab');
+    var registerLink = document.getElementById('registerLink');
     var currentRole = 'student'; // 'student' | 'institution' | 'admin'
+
+    // ── Register link with role routing ─────────────────────────────────
+    registerLink.addEventListener('click', function (e) {
+      e.preventDefault();
+      if (currentRole === 'institution') {
+        window.location.href = '/institution-register';
+      } else {
+        window.location.href = '/register';
+      }
+    });
 
     // ── Role tab switching ──────────────────────────────────────────────
     tabs.forEach(function (tab) {
@@ -140,6 +186,40 @@
       return '/dashboard';
     }
 
+    /**
+     * Handle successful login for students.
+     * If needs_subscription_selection is true and student is direct_subscriber,
+     * show the subscription modal instead of redirecting to dashboard.
+     */
+    function _handleStudentLoginSuccess(result) {
+      var needsSubscription = result.data && result.data.needs_subscription_selection;
+      var isDirectSubscriber = result.data && result.data.student_subtype === 'direct_subscriber';
+
+      // For institution-linked students or those with active subscriptions, redirect normally
+      if (!needsSubscription || !isDirectSubscriber) {
+        var nextUrl = _safeReturnUrl();
+        window.location.href = nextUrl || _roleHome('student', result.data);
+        return;
+      }
+
+      // Direct subscriber without subscription → show subscription modal
+      console.log('[login] Direct subscriber needs subscription selection, showing modal');
+
+      // Store login response for later use (after subscription selection)
+      sessionStorage.setItem('_loginResponse', JSON.stringify(result.data));
+
+      // Hide login form and show subscription modal
+      form.parentElement.style.display = 'none';
+
+      // Import modal and show it
+      if (typeof SubscriptionModal !== 'undefined' && typeof SubscriptionModal.show === 'function') {
+        SubscriptionModal.show();
+      } else {
+        console.error('[login] SubscriptionModal not available');
+        showError('Subscription module not loaded. Please refresh the page.');
+      }
+    }
+
     // ── Form submit ──────────────────────────────────────────────────────
     form.addEventListener('submit', async function (e) {
       e.preventDefault();
@@ -168,8 +248,15 @@
 
         if (result.ok) {
           var role = (result.data && result.data.role) || '';
-          var nextUrl = _safeReturnUrl();
-          window.location.href = nextUrl || _roleHome(role, result.data);
+          
+          // Handle student login with subscription check
+          if (currentRole === 'student') {
+            _handleStudentLoginSuccess(result);
+          } else {
+            // Admin and institution logins proceed normally
+            var nextUrl = _safeReturnUrl();
+            window.location.href = nextUrl || _roleHome(role, result.data);
+          }
         } else if (result.status === 503) {
           showError('Service temporarily unavailable. Please try again later.');
         } else if (result.status === 423) {
@@ -181,6 +268,7 @@
           showError(msg);
         }
       } catch (err) {
+        console.error('[login] Login error:', err);
         showError('Network error. Please try again.');
       } finally {
         loginBtn.disabled = false;
@@ -189,12 +277,21 @@
     });
 
     // ── Redirect if already authenticated ───────────────────────────────
-    (async function () {
-      var user = await Auth.currentRole();
-      if (!user) return;
-      var nextUrl = _safeReturnUrl();
-      window.location.href = nextUrl || _roleHome(user.role);
-    })();
+    // TEMPORARILY DISABLED: this auto-redirect caused the /login page to
+    // "glitch" (instant bounce to /dashboard) whenever a stale session
+    // cookie was present, making it impossible to reach the login form to
+    // switch accounts. Re-enable once stale-session handling is sorted.
+    // (async function () {
+    //   try {
+    //     var user = await Auth.currentRole();
+    //     if (!user) return;  // Not authenticated — stay on login page
+    //     var nextUrl = _safeReturnUrl();
+    //     window.location.href = nextUrl || _roleHome(user.role);
+    //   } catch (e) {
+    //     // Silently ignore auth check errors on login page
+    //     console.log('[login] Auth check skipped (expected when not authenticated)', e);
+    //   }
+    // })();
 
     // ── Session-expired notice ───────────────────────────────────────────
     try {

@@ -168,7 +168,8 @@ var SubscriptionModal = (function () {
   }
 
   /**
-   * Close the modal and refresh the page so subscription-aware UI updates.
+   * Close the modal and redirect to dashboard after successful subscription activation.
+   * Check if we're on the login page with a pending login response.
    */
   function _onActivationSuccess(successMessage) {
     _lastAction = null;
@@ -184,10 +185,32 @@ var SubscriptionModal = (function () {
     }
 
     hide();
+    
+    // After successful subscription activation, redirect to dashboard
     setTimeout(function () {
       try {
-        window.location.reload();
-      } catch (e) { /* testing environments may not support navigation */ }
+        // Check if we have a pending login response from the login page
+        var loginResponse = sessionStorage.getItem('_loginResponse');
+        if (loginResponse) {
+          var data = JSON.parse(loginResponse);
+          sessionStorage.removeItem('_loginResponse');
+          
+          // Determine correct redirect URL
+          var redirectUrl = data.redirect || '/dashboard';
+          if (data.student_subtype === 'institution_linked') {
+            redirectUrl = '/student/institution/dashboard';
+          }
+          
+          console.log('[modal] Redirecting to:', redirectUrl);
+          window.location.href = redirectUrl;
+        } else {
+          // Not on login page, just reload
+          window.location.reload();
+        }
+      } catch (e) {
+        console.error('[modal] Redirect error:', e);
+        window.location.href = '/dashboard';
+      }
     }, 50);
   }
 
@@ -550,21 +573,40 @@ var SubscriptionModal = (function () {
   };
 
   function _bindListeners() {
-    if (!_modalEl || _initialized) return;
+    if (!_modalEl) return;
+    
+    // If already initialized, remove old listeners first to prevent duplicates
+    if (_initialized) {
+      // Remove old handlers if they exist
+      Object.keys(_handlers).forEach(function(key) {
+        if (_handlers[key]) {
+          console.log('[modal] Cleanup: Removing old ' + key + ' handler');
+          // This will be handled when we re-attach
+        }
+      });
+      // Don't return early - rebind the listeners
+    }
 
     // Close button
     var closeBtn = _qs('.modal-close');
-    if (closeBtn) {
+    if (closeBtn && closeBtn !== _handlers._oldCloseBtn) {
+      if (_handlers.close && _handlers._oldCloseBtn) {
+        _handlers._oldCloseBtn.removeEventListener('click', _handlers.close);
+      }
       _handlers.close = function (evt) {
         evt.preventDefault();
         if (!_isBusy) hide();
       };
       closeBtn.addEventListener('click', _handlers.close);
+      _handlers._oldCloseBtn = closeBtn;
     }
 
     // Free plan button
     var freeBtn = _qs('[data-action="select-free"]');
-    if (freeBtn) {
+    if (freeBtn && freeBtn !== _handlers._oldFreeBtn) {
+      if (_handlers.free && _handlers._oldFreeBtn) {
+        _handlers._oldFreeBtn.removeEventListener('click', _handlers.free);
+      }
       _handlers.free = function (evt) {
         evt.preventDefault();
         if (_isBusy) {
@@ -575,11 +617,15 @@ var SubscriptionModal = (function () {
         selectFree();
       };
       freeBtn.addEventListener('click', _handlers.free);
+      _handlers._oldFreeBtn = freeBtn;
     }
 
     // 7-Day Trial button
     var trialBtn = _qs('[data-action="select-trial"]');
-    if (trialBtn) {
+    if (trialBtn && trialBtn !== _handlers._oldTrialBtn) {
+      if (_handlers.trial && _handlers._oldTrialBtn) {
+        _handlers._oldTrialBtn.removeEventListener('click', _handlers.trial);
+      }
       _handlers.trial = function (evt) {
         evt.preventDefault();
         if (_isBusy) {
@@ -590,11 +636,15 @@ var SubscriptionModal = (function () {
         selectTrial();
       };
       trialBtn.addEventListener('click', _handlers.trial);
+      _handlers._oldTrialBtn = trialBtn;
     }
 
     // Pro Monthly button
     var monthlyBtn = _qs('[data-action="select-monthly"]');
-    if (monthlyBtn) {
+    if (monthlyBtn && monthlyBtn !== _handlers._oldMonthlyBtn) {
+      if (_handlers.monthly && _handlers._oldMonthlyBtn) {
+        _handlers._oldMonthlyBtn.removeEventListener('click', _handlers.monthly);
+      }
       _handlers.monthly = function (evt) {
         evt.preventDefault();
         if (_isBusy) {
@@ -605,11 +655,15 @@ var SubscriptionModal = (function () {
         selectMonthly();
       };
       monthlyBtn.addEventListener('click', _handlers.monthly);
+      _handlers._oldMonthlyBtn = monthlyBtn;
     }
 
     // Pro Yearly button
     var yearlyBtn = _qs('[data-action="select-yearly"]');
-    if (yearlyBtn) {
+    if (yearlyBtn && yearlyBtn !== _handlers._oldYearlyBtn) {
+      if (_handlers.yearly && _handlers._oldYearlyBtn) {
+        _handlers._oldYearlyBtn.removeEventListener('click', _handlers.yearly);
+      }
       _handlers.yearly = function (evt) {
         evt.preventDefault();
         if (_isBusy) {
@@ -620,11 +674,15 @@ var SubscriptionModal = (function () {
         selectYearly();
       };
       yearlyBtn.addEventListener('click', _handlers.yearly);
+      _handlers._oldYearlyBtn = yearlyBtn;
     }
 
     // Retry button inside the error block
     var retryBtn = _qs('.btn-retry');
-    if (retryBtn) {
+    if (retryBtn && retryBtn !== _handlers._oldRetryBtn) {
+      if (_handlers.retry && _handlers._oldRetryBtn) {
+        _handlers._oldRetryBtn.removeEventListener('click', _handlers.retry);
+      }
       _handlers.retry = function (evt) {
         evt.preventDefault();
         if (_isBusy) {
@@ -646,10 +704,15 @@ var SubscriptionModal = (function () {
         }
       };
       retryBtn.addEventListener('click', _handlers.retry);
+      _handlers._oldRetryBtn = retryBtn;
     }
 
-    _initialized = true;
-    console.log('[modal] Event listeners bound successfully');
+    if (!_initialized) {
+      _initialized = true;
+      console.log('[modal] Event listeners bound successfully (first time)');
+    } else {
+      console.log('[modal] Event listeners re-bound for updated DOM');
+    }
   }
 
   // ── Initialize (load plans from API) ───────────────────────────────────
@@ -660,6 +723,7 @@ var SubscriptionModal = (function () {
    */
   async function init() {
     try {
+      // Fetch subscription plans
       var res = await fetch('/api/payments/plans/student', {
         method: 'GET',
         credentials: 'include',
@@ -684,6 +748,94 @@ var SubscriptionModal = (function () {
         if (monthlyBtn && monthlyPlan) monthlyBtn.setAttribute('data-plan-id', monthlyPlan.id);
         if (yearlyBtn && yearlyPlan) yearlyBtn.setAttribute('data-plan-id', yearlyPlan.id);
       }
+
+      // Check user's current subscription status
+      try {
+        var statusRes = await fetch('/api/subscription/user/subscription-status', {
+          method: 'GET',
+          credentials: 'include',
+        });
+
+        console.log('[subscription-modal] Subscription status response status:', statusRes.status);
+        
+        if (statusRes.ok) {
+          var statusData = await statusRes.json();
+          console.log('[subscription-modal] Subscription status data:', statusData);
+          
+          // If user has active subscription, disable buttons based on current plan
+          if (statusData.has_active_subscription && statusData.current_plan_name) {
+            console.log('[subscription-modal] Has active subscription:', statusData.current_plan_name);
+            
+            var daysRemaining = statusData.days_remaining || 'unknown';
+            var currentPlan = statusData.current_plan_name;
+            var tooltipText = 'Can be upgraded after ' + currentPlan + ' expires in ' + daysRemaining + ' days';
+            
+            var freeBtn = _qs('[data-action="select-free"]');
+            var trialBtn = _qs('[data-action="select-trial"]');
+            var monthlyBtn = _qs('[data-action="select-monthly"]');
+            var yearlyBtn = _qs('[data-action="select-yearly"]');
+            
+            console.log('[subscription-modal] Button elements found:', {
+              free: !!freeBtn,
+              trial: !!trialBtn,
+              monthly: !!monthlyBtn,
+              yearly: !!yearlyBtn
+            });
+            
+            // Determine which buttons to disable based on current plan
+            var buttonsToDisable = [];
+            
+            if (currentPlan === 'Free') {
+              // If on Free: enable all 3 paid buttons
+              buttonsToDisable = [];
+              console.log('[subscription-modal] Current plan: Free - all paid buttons enabled');
+            } else if (currentPlan.includes('7-Day')) {
+              // If on Trial: disable Free, Monthly, Yearly
+              buttonsToDisable = [freeBtn, monthlyBtn, yearlyBtn];
+              console.log('[subscription-modal] Current plan: 7-Day Trial - disabling Free, Monthly, Yearly');
+            } else if (currentPlan.includes('Monthly')) {
+              // If on Pro Monthly: disable Free, Trial, Yearly
+              buttonsToDisable = [freeBtn, trialBtn, yearlyBtn];
+              console.log('[subscription-modal] Current plan: Pro Monthly - disabling Free, Trial, Yearly');
+            } else if (currentPlan.includes('Yearly')) {
+              // If on Pro Yearly: disable Free, Trial, Monthly
+              buttonsToDisable = [freeBtn, trialBtn, monthlyBtn];
+              console.log('[subscription-modal] Current plan: Pro Yearly - disabling Free, Trial, Monthly');
+            }
+            
+            console.log('[subscription-modal] Buttons to disable count:', buttonsToDisable.length);
+            
+            // Apply disabled state to all buttons in buttonsToDisable list
+            buttonsToDisable.forEach(function (btn, idx) {
+              if (!btn) {
+                console.warn('[subscription-modal] Button at index ' + idx + ' is null/undefined');
+                return;
+              }
+              console.log('[subscription-modal] Disabling button:', btn.getAttribute('data-action'));
+              btn.disabled = true;
+              btn.classList.add('disabled');
+              btn.setAttribute('title', tooltipText);
+              btn.setAttribute('aria-disabled', 'true');
+              
+              // Add visual disabled state
+              btn.style.opacity = '0.5';
+              btn.style.cursor = 'not-allowed';
+              btn.style.pointerEvents = 'none';
+            });
+            
+            console.log('[subscription-modal] Applied subscription-based button restrictions');
+          } else {
+            console.log('[subscription-modal] No active subscription or plan name missing');
+            console.log('[subscription-modal] has_active_subscription:', statusData.has_active_subscription);
+            console.log('[subscription-modal] current_plan_name:', statusData.current_plan_name);
+          }
+        } else {
+          console.warn('[subscription-modal] Subscription status request failed with status:', statusRes.status);
+        }
+      } catch (err) {
+        console.warn('[subscription-modal] Could not check subscription status:', err);
+        // Non-fatal - continue anyway
+      }
     } catch (err) {
       console.error('Failed to load plans:', err);
     }
@@ -702,6 +854,13 @@ var SubscriptionModal = (function () {
     }
     if (_isOpen) return;
 
+    // Initialize modal data (fetch plans and subscription status) if not already initialized
+    if (!_initialized) {
+      console.log('[subscription-modal] First time showing modal - initializing...');
+      init();  // This is async but we don't wait for it - data will populate as it arrives
+    }
+
+    // Always rebind listeners when showing modal (ensures buttons are clickable)
     _bindListeners();
     _clearError();
     _setLoading(false);

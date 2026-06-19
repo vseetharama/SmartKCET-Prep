@@ -225,6 +225,65 @@
         </div>
       </section>
     </div>
+
+    <!-- Students List Modal -->
+    <div class="modal-overlay" id="studentsModal" role="dialog" aria-modal="true" aria-labelledby="studentsModalTitle" aria-hidden="true" style="display:none;">
+      <div class="modal-dialog" style="max-width: 900px;">
+        <div class="modal-header">
+          <h2 id="studentsModalTitle">All Students</h2>
+          <button type="button" class="modal-close" id="studentsModalClose" aria-label="Close students list">&times;</button>
+        </div>
+        <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+          <!-- Institution Students Section -->
+          <div id="institutionStudentsSection">
+            <h3 id="institutionName" style="margin-top: 0; color: var(--purple-l, #a78bfa); font-size: 1.1rem;">Loading...</h3>
+            <p style="color: var(--muted); margin-bottom: 16px;">Institution-Linked Students</p>
+            <div class="responsive-table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Student ID</th>
+                  </tr>
+                </thead>
+                <tbody id="institutionStudentsBody">
+                  <tr><td colspan="3" style="text-align: center; color: var(--muted); padding: 20px;">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Direct Subscribers Section -->
+          <div id="directSubscribersSection" style="margin-top: 32px;">
+            <h3 style="margin-top: 0; color: var(--green-l, #86efac); font-size: 1.1rem;">Direct Subscribers</h3>
+            <p style="color: var(--muted); margin-bottom: 16px;">All Platform Direct Subscribers</p>
+            <div class="responsive-table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Student ID</th>
+                  </tr>
+                </thead>
+                <tbody id="directSubscribersBody">
+                  <tr><td colspan="3" style="text-align: center; color: var(--muted); padding: 20px;">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Summary -->
+          <div style="margin-top: 24px; padding: 16px; background: rgba(167, 139, 250, 0.08); border-radius: 8px; border: 1px solid var(--border);">
+            <p style="margin: 0; color: var(--text); font-weight: 500;">
+              <span id="institutionStudentCount">0</span> institution students + <span id="directSubscriberCount">0</span> direct subscribers = <span id="totalStudentCount">0</span> total students
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <script src="../js/auth.js"></script>

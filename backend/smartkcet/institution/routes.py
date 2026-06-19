@@ -613,110 +613,127 @@ async def get_institution_dashboard(
     from ..db.models import Submission
     from sqlalchemy import select as sa_select, desc
 
-    institution_id = UUID(payload["institution_id"])
+    try:
+        institution_id = UUID(payload["institution_id"])
 
-    # Institution info
-    institution = db.query(Institution).filter(Institution.id == institution_id).first()
-    if not institution:
-        raise HTTPException(status_code=404, detail={"error": "institution_not_found", "message": "Institution not found"})
+        # Institution info
+        institution = db.query(Institution).filter(Institution.id == institution_id).first()
+        
+        if not institution:
+            raise HTTPException(
+                status_code=404, 
+                detail={"error": "institution_not_found", "message": "Institution not found"}
+            )
 
-    # Student count (exclude institution_admin accounts)
-    total_students = db.query(User).filter(
-        User.institution_id == institution_id,
-        User.role == "student",
-    ).count()
-
-    # Active subscription
-    active_sub = (
-        db.query(Subscription)
-        .filter(
-            Subscription.institution_id == institution_id,
-            Subscription.status.in_(["trial", "active", "overdue", "grace_period"]),
-        )
-        .first()
-    )
-
-    subscription_status = active_sub.status if active_sub else "expired"
-    max_students = None
-    weekly_test_limit = None
-    monthly_test_limit = None
-    next_renewal_date = None
-
-    if active_sub and active_sub.plan:
-        max_students = active_sub.plan.max_student_seats
-        # Use max_test_attempts_per_period for both weekly and monthly limits
-        weekly_test_limit = active_sub.plan.max_test_attempts_per_period
-        monthly_test_limit = active_sub.plan.max_test_attempts_per_period
-        next_renewal_date = active_sub.next_renewal_date.isoformat() if active_sub.next_renewal_date else None
-
-    # Recent submissions (last 10 from institution students, exclude admins)
-    student_ids = [
-        row[0] for row in db.query(User.id).filter(
+        # Student count (exclude institution_admin accounts)
+        total_students = db.query(User).filter(
             User.institution_id == institution_id,
             User.role == "student",
-        ).all()
-    ]
+        ).count()
 
-    recent_submissions = []
-    tests_this_week = 0
-    tests_this_month = 0
-
-    if student_ids:
-        from datetime import datetime, timedelta
-        now = datetime.utcnow()
-        week_ago = now - timedelta(days=7)
-        month_ago = now - timedelta(days=30)
-
-        try:
-            subs = (
-                db.query(Submission)
-                .filter(Submission.student_id.in_(student_ids))
-                .order_by(desc(Submission.submitted_at))
-                .limit(10)
-                .all()
+        # Active subscription
+        active_sub = (
+            db.query(Subscription)
+            .filter(
+                Subscription.institution_id == institution_id,
+                Subscription.status.in_(["trial", "active", "overdue", "grace_period"]),
             )
-            for s in subs:
-                student = db.query(User).filter(User.id == s.student_id).first()
-                recent_submissions.append({
-                    "student_name": student.display_name if student else "Unknown",
-                    "subject": s.subject or "—",
-                    "score": round(s.score_pct, 1) if s.score_pct is not None else None,
-                    "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
-                    "time_taken_sec": s.time_taken_sec,
-                })
+            .first()
+        )
 
-            tests_this_week = (
-                db.query(Submission)
-                .filter(
-                    Submission.student_id.in_(student_ids),
-                    Submission.submitted_at >= week_ago,
+        subscription_status = active_sub.status if active_sub else None
+        max_students = None
+        weekly_test_limit = None
+        monthly_test_limit = None
+        next_renewal_date = None
+
+        if active_sub and active_sub.plan:
+            max_students = active_sub.plan.max_student_seats
+            # Use max_test_attempts_per_period for both weekly and monthly limits
+            weekly_test_limit = active_sub.plan.max_test_attempts_per_period
+            monthly_test_limit = active_sub.plan.max_test_attempts_per_period
+            next_renewal_date = active_sub.next_renewal_date.isoformat() if active_sub.next_renewal_date else None
+
+        # Recent submissions (last 10 from institution students, exclude admins)
+        student_ids = [
+            row[0] for row in db.query(User.id).filter(
+                User.institution_id == institution_id,
+                User.role == "student",
+            ).all()
+        ]
+
+        recent_submissions = []
+        tests_this_week = 0
+        tests_this_month = 0
+
+        if student_ids:
+            from datetime import datetime, timedelta
+            now = datetime.utcnow()
+            week_ago = now - timedelta(days=7)
+            month_ago = now - timedelta(days=30)
+
+            try:
+                subs = (
+                    db.query(Submission)
+                    .filter(Submission.student_id.in_(student_ids))
+                    .order_by(desc(Submission.submitted_at))
+                    .limit(10)
+                    .all()
                 )
-                .count()
-            )
-            tests_this_month = (
-                db.query(Submission)
-                .filter(
-                    Submission.student_id.in_(student_ids),
-                    Submission.submitted_at >= month_ago,
-                )
-                .count()
-            )
-        except Exception:
-            pass  # Submissions table may not exist yet
+                for s in subs:
+                    student = db.query(User).filter(User.id == s.student_id).first()
+                    recent_submissions.append({
+                        "student_name": student.display_name if student else "Unknown",
+                        "subject": s.subject or "—",
+                        "score": round(s.score_pct, 1) if s.score_pct is not None else None,
+                        "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
+                        "time_taken_sec": s.time_taken_sec,
+                    })
 
-    return {
-        "institution_id": str(institution_id),
-        "institution_name": institution.name,
-        "total_students": total_students,
-        "max_students": max_students,
-        "subscription_status": subscription_status,
-        "next_renewal_date": next_renewal_date,
-        "weekly_test_limit": weekly_test_limit,
-        "monthly_test_limit": monthly_test_limit,
-        "tests_this_week": tests_this_week,
-        "tests_this_month": tests_this_month,
-        "recent_submissions": recent_submissions,
-    }
+                tests_this_week = (
+                    db.query(Submission)
+                    .filter(
+                        Submission.student_id.in_(student_ids),
+                        Submission.submitted_at >= week_ago,
+                    )
+                    .count()
+                )
+                tests_this_month = (
+                    db.query(Submission)
+                    .filter(
+                        Submission.student_id.in_(student_ids),
+                        Submission.submitted_at >= month_ago,
+                    )
+                    .count()
+                )
+            except Exception:
+                pass  # Submissions table may not exist yet
+
+        return {
+            "institution_id": str(institution_id),
+            "institution_name": institution.name,
+            "total_students": total_students,
+            "max_students": max_students,
+            "subscription_status": subscription_status,
+            "next_renewal_date": next_renewal_date,
+            "weekly_test_limit": weekly_test_limit,
+            "monthly_test_limit": monthly_test_limit,
+            "tests_this_week": tests_this_week,
+            "tests_this_month": tests_this_month,
+            "recent_submissions": recent_submissions,
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logging.getLogger("smartkcet.institution").error(
+            "Dashboard endpoint error: %s", str(e), exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "internal_error", "message": "Unable to load dashboard data"}
+        )
 
 
 @router.get("/subscription")
@@ -733,7 +750,10 @@ async def get_institution_subscription(
 
     active_sub = (
         db.query(Subscription)
-        .filter(Subscription.institution_id == institution_id)
+        .filter(
+            Subscription.institution_id == institution_id,
+            Subscription.status.in_(["active", "trial", "grace_period"])  # Only active statuses
+        )
         .order_by(Subscription.created_at.desc())
         .first()
     )
@@ -748,6 +768,7 @@ async def get_institution_subscription(
 
     plan = active_sub.plan
     return {
+        "subscription_status": active_sub.status,  # ← Add this field for frontend access control
         "institution_id": str(institution_id),
         "institution_name": institution.name,
         "plan_name": plan.name if plan else "Institution Plan",
@@ -783,6 +804,7 @@ async def list_invitations(
         return {
             "invitations": [
                 {
+                    "sequence_number": inv.sequence_number,  # NEW: Show invitation number
                     "code": inv.code,
                     "status": inv.status,
                     "created_at": inv.created_at.isoformat() if inv.created_at else None,
@@ -891,22 +913,46 @@ async def revoke_invitation(
 ):
     """Revoke a pending invitation."""
     from ..db.subscription_models import Invitation
+    import logging
+    
+    logger = logging.getLogger("smartkcet.institution")
 
-    institution_id = UUID(payload["institution_id"])
-    inv = db.query(Invitation).filter(
-        Invitation.code == code,
-        Invitation.institution_id == institution_id,
-    ).first()
+    try:
+        institution_id = UUID(payload["institution_id"])
+        
+        # Decode the code if URL-encoded
+        from urllib.parse import unquote
+        decoded_code = unquote(code)
+        
+        logger.info(f"Revoking invitation: original={code}, decoded={decoded_code}")
+        
+        inv = db.query(Invitation).filter(
+            Invitation.code == decoded_code,
+            Invitation.institution_id == institution_id,
+        ).first()
 
-    if not inv:
+        if not inv:
+            logger.warning(f"Invitation not found: code={decoded_code}, institution_id={institution_id}")
+            raise HTTPException(
+                status_code=404,
+                detail={"error": "invalid_invitation", "message": "Invitation not found"},
+            )
+
+        inv.status = "revoked"
+        db.commit()
+        
+        logger.info(f"Successfully revoked invitation: code={decoded_code}")
+        return {"message": "Invitation revoked"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error revoking invitation: {str(e)}", exc_info=True)
+        db.rollback()
         raise HTTPException(
-            status_code=404,
-            detail={"error": "invalid_invitation", "message": "Invitation not found"},
+            status_code=500,
+            detail={"error": "internal_error", "message": "Failed to revoke invitation"}
         )
-
-    inv.status = "revoked"
-    db.commit()
-    return {"message": "Invitation revoked"}
 
 
 # ---------------------------------------------------------------------------
@@ -1158,6 +1204,114 @@ async def get_institution_student_performance(
             "pass_rate": pass_rate,
         },
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# GET /api/institution/students
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/students")
+async def get_all_students(
+    auth: dict = Depends(require_institution_admin),
+    db: Session = Depends(get_session),
+):
+    """Get all students: institution-linked students + direct subscribers.
+    
+    Returns:
+    {
+        "institution": {
+            "name": "SMVITM",
+            "code": "smvitm",
+            "students": [
+                {
+                    "email": "student@example.com",
+                    "name": "Student Name",
+                    "id": "SMVITM0001",
+                    "subtype": "institution_linked"
+                }
+            ]
+        },
+        "direct_subscribers": [
+            {
+                "email": "direct@example.com",
+                "name": "Direct Subscriber",
+                "id": "KCET0001",
+                "subtype": "direct_subscriber"
+            }
+        ]
+    }
+    """
+    try:
+        institution_id = UUID(auth.get("institution_id"))
+        
+        # Get institution info
+        institution = (
+            db.query(Institution)
+            .filter(Institution.id == institution_id)
+            .first()
+        )
+        
+        if not institution:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "institution_not_found", "message": "Institution not found"}
+            )
+        
+        # Get institution-linked students
+        institution_students = (
+            db.query(User)
+            .filter(
+                User.institution_id == institution_id,
+                User.role == "student"
+            )
+            .all()
+        )
+        
+        # Get all direct subscribers (not linked to any institution)
+        direct_subscribers = (
+            db.query(User)
+            .filter(
+                User.student_subtype == "direct_subscriber",
+                User.institution_id.is_(None),
+                User.role == "student"
+            )
+            .all()
+        )
+        
+        return {
+            "institution": {
+                "name": institution.name,
+                "code": institution.institution_code,
+                "students": [
+                    {
+                        "email": s.email,
+                        "name": s.display_name,
+                        "id": s.kcet_student_id,
+                        "subtype": s.student_subtype
+                    }
+                    for s in institution_students
+                ]
+            },
+            "direct_subscribers": [
+                {
+                    "email": s.email,
+                    "name": s.display_name,
+                    "id": s.kcet_student_id,
+                    "subtype": s.student_subtype
+                }
+                for s in direct_subscribers
+            ]
+        }
+        
+    except Exception as e:
+        import logging
+        logging.getLogger("smartkcet.institution").error(
+            "Error fetching students: %s", e
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "server_error", "message": "Failed to fetch students"}
+        )
 
 
 __all__ = ["router"]

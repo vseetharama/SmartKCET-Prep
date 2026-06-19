@@ -14,13 +14,32 @@ from typing import List
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from ..rag import groq_client as groq_module
-from ..rag.parsing import (
-    chunk_text,
-    extract_text_from_docx,
-    extract_text_from_pdf,
-    extract_text_from_txt,
-)
+# Graceful degradation for Python 3.14 compatibility
+# Both groq and pytesseract hang on import on Python 3.14
+try:
+    from ..rag import groq_client as groq_module
+    GROQ_AVAILABLE = True
+except (ImportError, TimeoutError):
+    GROQ_AVAILABLE = False
+    groq_module = None
+
+# pytesseract is not available on Python 3.14 (pkgutil.find_loader removed)
+try:
+    from ..rag.parsing import (
+        chunk_text,
+        extract_text_from_docx,
+        extract_text_from_pdf,
+        extract_text_from_txt,
+    )
+    PARSING_AVAILABLE = True
+except (ImportError, TimeoutError):
+    PARSING_AVAILABLE = False
+    # Provide stub functions so the module can still be imported
+    chunk_text = None
+    extract_text_from_docx = None
+    extract_text_from_pdf = None
+    extract_text_from_txt = None
+
 from ..rag.store import store
 from ..submissions.scoring import score_submission
 

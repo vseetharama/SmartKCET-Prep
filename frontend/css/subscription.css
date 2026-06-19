@@ -1083,3 +1083,284 @@
   .plan-actions .btn-secondary { transition: none; }
   .loading-spinner { animation: none; }
 }
+
+/* ──────────────────────────────────────────────────────────────────────
+   PHASE 2: Plan Selection Cards (Task 2)
+   ──────────────────────────────────────────────────────────────────────
+   Renders plan selection grid with dynamic button states (enabled/disabled/current).
+   - 2-column grid on desktop, 1 column on mobile
+   - Button states: blue (enabled), gray (disabled), green (current)
+   - Min 44px button height for accessibility
+   - Smooth transitions and hover effects
+   ────────────────────────────────────────────────────────────────────── */
+
+/* Plan Selection Card Container */
+.sub-plan-selection-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  margin-top: 16px;
+}
+
+.sub-plan-selection-card .sfcard-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.sub-plan-selection-card .sfcard-header h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 2px;
+}
+
+.sub-plan-selection-card .sfcard-header p {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.65);
+  margin: 0;
+}
+
+.sub-plan-selection-card .sfcard-icon {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(168, 85, 247, 0.15);
+  border-radius: 6px;
+}
+
+.sub-plan-selection-card .sfcard-icon.purple {
+  color: #a855f7;
+}
+
+.sub-plan-selection-card .sfcard-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Plan Grid Layout */
+.plan-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+}
+
+/* Individual Plan Option Card */
+.plan-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.plan-option:hover {
+  background: rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.plan-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-grow: 1;
+  justify-content: center;
+  width: 100%;
+}
+
+.plan-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.3;
+}
+
+.plan-price {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 600;
+}
+
+/* Plan Button Base Styles */
+.plan-btn {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 2px solid;
+  border-radius: 6px;
+  font-size: 0.77rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Enabled State - Blue */
+.plan-btn.btn-enabled {
+  background: linear-gradient(135deg, #667eea 0%, #5568d3 100%);
+  border-color: #667eea;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.25);
+}
+
+.plan-btn.btn-enabled:hover:not(:disabled) {
+  background: linear-gradient(135deg, #5568d3 0%, #4657c2 100%);
+  border-color: #5568d3;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  transform: translateY(-1px);
+}
+
+.plan-btn.btn-enabled:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+}
+
+/* Disabled State - Gray */
+.plan-btn.btn-disabled {
+  background: #f5f5f5;
+  border-color: #e5e5e5;
+  color: #999;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.plan-btn.btn-disabled:hover {
+  background: #f5f5f5;
+  border-color: #e5e5e5;
+}
+
+/* Current Plan State - Green */
+.plan-btn.btn-current {
+  background: linear-gradient(135deg, #28a745 0%, #228e3d 100%);
+  border-color: #28a745;
+  color: #fff;
+  cursor: not-allowed;
+  opacity: 0.85;
+  box-shadow: 0 2px 8px rgba(40, 167, 69, 0.25);
+}
+
+.plan-btn.btn-current:hover {
+  background: linear-gradient(135deg, #28a745 0%, #228e3d 100%);
+  border-color: #28a745;
+}
+
+/* Loading State */
+.plan-btn.is-loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.plan-btn.is-loading::after {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  margin-left: 4px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Focus Styles for Accessibility */
+.plan-btn:focus-visible {
+  outline: 2px solid #667eea;
+  outline-offset: 2px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Responsive: Mobile (max-width: 767px)
+   ──────────────────────────────────────────────────────────────────────*/
+@media (max-width: 767px) {
+  .plan-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .plan-option {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .plan-btn {
+    min-height: 38px;
+    padding: 7px 10px;
+    font-size: 0.75rem;
+  }
+
+  .sub-plan-selection-card {
+    padding: 16px;
+    margin-top: 12px;
+  }
+
+  .plan-name {
+    font-size: 0.8rem;
+  }
+
+  .plan-price {
+    font-size: 0.72rem;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Responsive: Extra Small Phones (max-width: 399px)
+   ──────────────────────────────────────────────────────────────────────*/
+@media (max-width: 399px) {
+  .plan-grid {
+    gap: 8px;
+  }
+
+  .plan-option {
+    padding: 10px;
+    gap: 6px;
+  }
+
+  .plan-btn {
+    min-height: 36px;
+    padding: 6px 8px;
+    font-size: 0.72rem;
+  }
+
+  .sub-plan-selection-card {
+    padding: 12px;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Reduced Motion
+   ──────────────────────────────────────────────────────────────────────*/
+@media (prefers-reduced-motion: reduce) {
+  .plan-option,
+  .plan-btn {
+    transition: none;
+  }
+
+  .plan-btn:hover:not(:disabled) {
+    transform: none;
+  }
+
+  .plan-btn.is-loading::after {
+    animation: none;
+  }
+}

@@ -31,6 +31,272 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/subscription", tags=["subscription"])
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Subscription Plan Selection Popup Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/user/subscription-status", status_code=status.HTTP_200_OK)
+async def check_subscription_status(
+    request: Request,
+    payload: Annotated[dict, Depends(require_authenticated)],
+    db: Session = Depends(get_session),
+):
+    """Check if current user needs to select a subscription plan.
+    
+    This endpoint is called after login to determine if the subscription
+    plan selection popup should be displayed. Returns detailed information
+    about user's subscription eligibility and available plans.
+    
+    Returns:
+        {
+            "needs_subscription_selection": bool,
+            "student_subtype": str,
+            "has_active_subscription": bool,
+            "current_status": str|null,
+            "current_plan_name": str|null,
+            "days_remaining": int|null,
+            "available_plans": [{plan_details}]
+        }
+        
+    Raises:
+        HTTPException: 401 if unauthenticated
+    """
+    user = current_user(request, db)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "auth_required", "message": "User not found"},
+        )
+    
+    service = SubscriptionService(db)
+    
+    try:
+        # Check if user needs subscription selection
+        needs_popup = service.needs_subscription_selection(user.id)
+        
+        # Get available plans
+        available_plans = service.get_available_plans_for_selection()
+        
+        # Get current subscription status if any
+        from ..db.subscription_models import Subscription as SubscriptionModel, SubscriptionPlan
+        from sqlalchemy import cast, String
+        from datetime import datetime as dt
+        
+        current_subscription = (
+            db.query(SubscriptionModel)
+            .filter(
+                SubscriptionModel.user_id == user.id,
+                SubscriptionModel.status.in_(["trial", "active", "overdue", "grace_period"])
+            )
+            .first()
+        )
+        
+        current_status = current_subscription.status if current_subscription else None
+        has_active_subscription = current_subscription is not None
+        current_plan_name = None
+        days_remaining = None
+        
+        # Get plan details if subscription exists
+        if current_subscription:
+            try:
+                plan = (
+                    db.query(SubscriptionPlan)
+                    .filter(cast(SubscriptionPlan.id, String) == str(current_subscription.plan_id))
+                    .first()
+                )
+                
+                if plan:
+                    current_plan_name = plan.name
+                
+                # Calculate days remaining until next renewal
+                if current_subscription.next_renewal_date:
+                    remaining = (current_subscription.next_renewal_date - dt.utcnow()).days
+                    days_remaining = max(0, remaining)
+            except Exception as e:
+                logger.warning(f"Could not get plan details: {e}")
+        
+        return {
+            "needs_subscription_selection": needs_popup,
+            "student_subtype": user.student_subtype,
+            "has_active_subscription": has_active_subscription,
+            "current_status": current_status,
+            "current_plan_name": current_plan_name,
+            "days_remaining": days_remaining,
+            "available_plans": available_plans,
+        }
+    
+    except SQLAlchemyError as e:
+        logger.error(f"Database error checking subscription status: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "service_unavailable",
+                "message": "Could not retrieve subscription status. Please retry.",
+                "retry_after_sec": 5,
+            },
+        ) from e
+
+
+@router.get("/subscription-plans", status_code=status.HTTP_200_OK)
+async def get_available_plans(
+    request: Request,
+    payload: Annotated[dict, Depends(require_authenticated)],
+    db: Session = Depends(get_session),
+):
+    """Get available subscription plans for selection popup.
+    
+    Returns the 4 standard subscription plans (Free, Trial, Pro Monthly, Pro Yearly)
+    sorted by price. These are presented to users who need to select a subscription.
+    
+    Returns:
+        List of subscription plan objects with id, name, price, and features
+        
+    Raises:
+        HTTPException: 401 if unauthenticated
+    """
+    user = current_user(request, db)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "auth_required", "message": "User not found"},
+        )
+    
+    service = SubscriptionService(db)
+    
+    try:
+        plans = service.get_available_plans_for_selection()
+        logger.debug(f"Retrieved {len(plans)} available plans for user {user.id}")
+        return plans
+    
+    except SQLAlchemyError as e:
+        logger.error(f"Database error retrieving subscription plans: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "service_unavailable",
+                "message": "Could not retrieve subscription plans. Please retry.",
+                "retry_after_sec": 5,
+            },
+        ) from e
+
+
+@router.post("/user/subscribe", response_model=SubscriptionResponse, status_code=status.HTTP_201_CREATED)
+async def activate_subscription_plan(
+    request: Request,
+    data: SubscriptionCreate,
+    payload: Annotated[dict, Depends(require_authenticated)],
+    db: Session = Depends(get_session),
+):
+    """Activate a selected subscription plan for the current user.
+    
+    This endpoint is called when a user selects a plan from the subscription
+    selection popup. It validates the plan and user eligibility, then activates
+    the subscription.
+    
+    Args:
+        data: Subscription creation data (plan_id, plan_type, billing_period)
+        
+    Returns:
+        Created subscription details
+        
+    Raises:
+        HTTPException:
+            - 400 if plan not found or invalid
+            - 403 if user doesn't need subscription selection
+            - 503 if database error occurs
+    """
+    user = current_user(request, db)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "auth_required", "message": "User not found"},
+        )
+    
+    service = SubscriptionService(db)
+    
+    try:
+        # Verify user needs subscription selection
+        if not service.needs_subscription_selection(user.id):
+            logger.warning(f"User {user.id} attempted subscription activation but doesn't need one")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "forbidden",
+                    "message": "User does not require subscription selection",
+                },
+            )
+        
+        # Activate based on plan type
+        if data.plan_type == "trial":
+            # Activate trial subscription
+            subscription = service.activate_trial(user.id)
+            logger.info(f"User {user.id} activated trial subscription")
+        
+        elif data.plan_type == "pro":
+            # Activate Pro subscription
+            if not data.billing_period:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "validation_error",
+                        "field": "billing_period",
+                        "message": "billing_period is required for Pro subscriptions",
+                    },
+                )
+            subscription = service.activate_pro(user.id, data.billing_period)
+            logger.info(f"User {user.id} activated Pro subscription ({data.billing_period.value})")
+        
+        else:
+            # For Free plan or unknown types
+            subscription = service.activate_free(user.id)
+            logger.info(f"User {user.id} activated Free subscription")
+        
+        return SubscriptionResponse.model_validate(subscription)
+    
+    except ValueError as e:
+        # Service-level validation errors
+        logger.warning(f"Subscription activation failed for user {user.id}: {e}")
+        error_msg = str(e)
+        
+        # Trial abuse detection
+        if "once per account" in error_msg or "already" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "trial_already_used",
+                    "message": error_msg,
+                },
+            ) from e
+        
+        # Other validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "validation_error",
+                "message": error_msg,
+            },
+        ) from e
+    
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    
+    except SQLAlchemyError as e:
+        logger.error(f"Database error during subscription activation: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "service_unavailable",
+                "message": "Could not complete subscription activation. Please retry.",
+                "retry_after_sec": 5,
+            },
+        ) from e
+
+
 @router.post("/select", response_model=SubscriptionResponse, status_code=status.HTTP_201_CREATED)
 async def select_subscription_plan(
     request: Request,
@@ -45,6 +311,10 @@ async def select_subscription_plan(
     
     **Requirements:** 1.1, 1.2, 1.3, 1.4, 1.6, 1.7, 1.8
     
+    **Rules**:
+    - FREE plan: Can be activated anytime (even with active subscription)
+    - TRIAL/PRO plans: Cannot be activated if user has active non-Free subscription
+    
     Args:
         request: FastAPI request object
         data: Subscription creation data (plan_type, billing_period, trial_duration_days)
@@ -58,6 +328,7 @@ async def select_subscription_plan(
         HTTPException: 
             - 400 if validation fails
             - 401 if user not found
+            - 409 if user already has an active paid subscription
             - 503 if database error occurs (retry-friendly)
     """
     user = current_user(request, db)
@@ -70,6 +341,19 @@ async def select_subscription_plan(
     service = SubscriptionService(db)
     
     try:
+        # For TRIAL/PRO plans: Check if user already has active subscription
+        # For FREE plan: No restriction (can always select)
+        if data.plan_type in ["trial", "pro"]:
+            can_change, error_msg = service.can_change_subscription(user.id)
+            if not can_change:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "error": "active_subscription_exists",
+                        "message": error_msg,
+                    },
+                )
+        
         if data.plan_type == "trial":
             # Activate Free Trial subscription
             trial_duration = data.trial_duration_days or 7
@@ -557,6 +841,81 @@ async def reactivate_subscription(
             detail={
                 "error": "service_unavailable",
                 "message": "Could not complete subscription reactivation. Please retry.",
+                "retry_after_sec": 5,
+            },
+        ) from e
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# PHASE 2: Subscription Management - Button State Endpoint
+# ─────────────────────────────────────────────────────────────────────────
+
+@router.get("/user/subscription-management")
+async def get_subscription_management_status(
+    request: Request,
+    payload: Annotated[dict, Depends(require_authenticated)],
+    db: Session = Depends(get_session),
+):
+    """Get subscription management status with button states for plan cards.
+    
+    Returns the current subscription status and button enable/disable states
+    for each of the 4 subscription plans based on the user's current
+    subscription status. This is used by the subscription management page
+    to display plan selection with appropriate button states.
+    
+    **Button State Logic**:
+    - If no subscription: all 4 plans enabled (user can select any)
+    - If Free plan: Trial, Monthly, Yearly enabled (can upgrade)
+    - If Trial plan: all others disabled (trial is locked)
+    - If Monthly plan: all others disabled (monthly is locked)
+    - If Yearly plan: all others disabled (highest tier, locked)
+    - If Expired: all 4 plans enabled (user can select fresh plan)
+    
+    Args:
+        request: FastAPI request object
+        payload: JWT payload from authentication middleware
+        db: Database session
+        
+    Returns:
+        JSON with button states for all plans
+        
+    Raises:
+        HTTPException: 401 if user not found, 503 if database error
+    """
+    user = current_user(request, db)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "auth_required", "message": "User not found"},
+        )
+    
+    service = SubscriptionService(db)
+    
+    try:
+        management_status = service.get_subscription_management_status(user.id)
+        logger.debug(f"Retrieved subscription management status for user {user.id}")
+        return management_status
+    
+    except ValueError as e:
+        # Validation errors
+        logger.warning(f"Validation error retrieving management status for user {user.id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "validation_error",
+                "message": str(e),
+            },
+        ) from e
+    
+    except SQLAlchemyError as e:
+        # Database errors - return 503 for retry-friendly response
+        logger.error(f"Database error retrieving subscription management status: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "service_unavailable",
+                "message": "Could not retrieve subscription status. Please retry.",
                 "retry_after_sec": 5,
             },
         ) from e

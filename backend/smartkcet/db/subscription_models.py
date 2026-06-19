@@ -54,6 +54,7 @@ class Institution(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    institution_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, unique=True)
     contact_phone: Mapped[str] = mapped_column(String(15), nullable=False)
     subscription_status: Mapped[str] = mapped_column(
         String(20),
@@ -98,7 +99,7 @@ class SubscriptionPlan(Base):
 
     __tablename__ = "subscription_plans"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=False, native_uuid=False), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     plan_type: Mapped[str] = mapped_column(String(20), nullable=False)
     billing_period: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -154,7 +155,7 @@ class Subscription(Base):
         Uuid, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True
     )
     plan_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=False, native_uuid=False), ForeignKey("subscription_plans.id", ondelete="RESTRICT"), nullable=False
+        Uuid, ForeignKey("subscription_plans.id", ondelete="RESTRICT"), nullable=False
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     start_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -365,6 +366,7 @@ class Invitation(Base):
         Uuid, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False
     )
     code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    sequence_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # NEW: Sequential number
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending", server_default="pending"
     )

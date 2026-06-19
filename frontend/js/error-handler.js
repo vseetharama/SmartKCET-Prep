@@ -78,7 +78,7 @@ var ErrorHandler = (function () {
 
   // Pages where suppressing the redirect makes sense — if the user is
   // already on the login page, don't bounce them away from it.
-  var LOGIN_PATH_PREFIXES = ['/login', '/html/login.html'];
+  var LOGIN_PATH_PREFIXES = ['/login', '/html/login.html', '/register', '/html/register.html'];
 
   // ── Internal helpers ─────────────────────────────────────────────────────
 

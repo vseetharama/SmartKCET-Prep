@@ -75,6 +75,11 @@ var Router = (function () {
       requiresAuth: false,
       title: 'Page Not Found',
     },
+    '/contact-us': {
+      htmlFile: '/html/contact-us.html',
+      requiresAuth: true,
+      title: 'Contact Us',
+    },
 
     // ── Student routes ───────────────────────────────────────────────────
     '/dashboard': {
@@ -250,6 +255,12 @@ var Router = (function () {
       requiresAuth: true,
       allowedRoles: ['platform_admin', 'admin'],
       title: 'Subscriptions',
+    },
+    '/admin/students': {
+      htmlFile: '/html/admin-students.html',
+      requiresAuth: true,
+      allowedRoles: ['platform_admin', 'admin'],
+      title: 'Students',
     },
   };
 

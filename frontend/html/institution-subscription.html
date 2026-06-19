@@ -352,11 +352,37 @@
     // institution-portal.js (task 11.2). This page provides only the structural
     // HTML required by task 11.1.
     document.addEventListener('DOMContentLoaded', function () {
+      // Check for payment success flag in URL
+      var urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('payment') === 'success') {
+        var planName = urlParams.get('plan') || 'Plan';
+        showPaymentSuccessMessage(planName);
+        // Clean up URL by removing payment params
+        window.history.replaceState({}, document.title, '/institution/subscription');
+      }
+      
       if (typeof loadInstitutionSubscription === 'function') {
         loadInstitutionSubscription();
       }
       loadPaymentHistory();
     });
+
+    // ── Payment Success Message ────────────────────────────────────────────────
+    function showPaymentSuccessMessage(planName) {
+      var banner = document.createElement('div');
+      banner.style.cssText = 'margin: 0 0 24px 0; padding: 16px 20px; background: rgba(5, 150, 105, 0.1); border: 1px solid rgba(5, 150, 105, 0.3); border-radius: 8px; color: var(--green-l); font-size: 0.95rem; display: flex; align-items: center; gap: 12px;';
+      banner.innerHTML = '<span style="font-size: 1.2rem;">✅</span><div><strong>Payment Successful!</strong><br><span style="font-size: 0.85rem; color: var(--muted); margin-top: 4px; display: block;">' + (planName || 'Your plan') + ' is now active. Your dashboard has been updated.</span></div>';
+      var content = document.getElementById('subscriptionContent');
+      if (content && content.parentNode) {
+        content.parentNode.insertBefore(banner, content);
+        // Auto-hide after 8 seconds
+        setTimeout(function() {
+          banner.style.opacity = '0';
+          banner.style.transition = 'opacity 0.3s';
+          setTimeout(function() { banner.remove(); }, 300);
+        }, 8000);
+      }
+    }
 
     // ── Payment history ────────────────────────────────────────────────────────
     function loadPaymentHistory() {

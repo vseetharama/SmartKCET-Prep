@@ -77,18 +77,34 @@ def _is_personal_student(payload: dict) -> bool:
 @router.get("/", response_model=None)
 @router.get("/index.html", response_model=None)
 def root_page(request: Request, session: Session = Depends(get_session)):
+    """Route root path to appropriate dashboard based on user role."""
     payload = resolve_payload(request, session)
+    
+    # No authentication
     if payload is None:
         return FileResponse(str(_HTML_DIR / "landing.html"), media_type="text/html")
-    if _is_institution_student(payload):
+    
+    # Get role and student subtype
+    role = payload.get("role", "").strip().lower()
+    student_subtype = payload.get("student_subtype", "").strip().lower()
+    
+    # Institution-linked student
+    if role == "student" and student_subtype == "institution_linked":
         return RedirectResponse(url="/student/institution/dashboard", status_code=_REDIRECT)
-    role = payload.get("role", "")
+    
+    # Direct subscriber student (role=student but NOT institution_linked)
     if role == "student":
         return RedirectResponse(url="/dashboard", status_code=_REDIRECT)
-    if _is_platform_admin(role):
+    
+    # Platform admin
+    if role in ("admin", "platform_admin"):
         return RedirectResponse(url="/admin/dashboard", status_code=_REDIRECT)
+    
+    # Institution admin
     if role == "institution_admin":
         return RedirectResponse(url="/institution/dashboard", status_code=_REDIRECT)
+    
+    # Fallback - no recognized role
     return FileResponse(str(_HTML_DIR / "landing.html"), media_type="text/html")
 
 
@@ -101,9 +117,24 @@ def login_page():
     return FileResponse(str(_HTML_DIR / "login.html"), media_type="text/html")
 
 
+@router.get("/favicon.ico", response_model=None)
+def favicon():
+    """Serve the brand favicon. Silences the browser's automatic
+    /favicon.ico request (previously a 404 since no asset was mounted)."""
+    return FileResponse(
+        str(_PROJECT_ROOT / "frontend" / "favicon.svg"),
+        media_type="image/svg+xml",
+    )
+
+
 @router.get("/register", response_model=None)
 def register_page():
     return FileResponse(str(_HTML_DIR / "register.html"), media_type="text/html")
+
+
+@router.get("/institution-register", response_model=None)
+def institution_register_page():
+    return FileResponse(str(_HTML_DIR / "institution-register.html"), media_type="text/html")
 
 
 @router.get("/not-found", response_model=None)
@@ -291,6 +322,16 @@ def admin_subscriptions_page(request: Request, session: Session = Depends(get_se
     return _admin_page(request, session, "admin-subscriptions.html")
 
 
+@router.get("/admin/students", response_model=None)
+def admin_students_page(request: Request, session: Session = Depends(get_session)):
+    return _admin_page(request, session, "admin-students.html")
+
+
+@router.get("/admin/student-manage", response_model=None)
+def admin_student_manage_page(request: Request, session: Session = Depends(get_session)):
+    return _admin_page(request, session, "admin-student-manage.html")
+
+
 @router.get("/admin/questions", response_model=None)
 def admin_questions_page(request: Request, session: Session = Depends(get_session)):
     return _admin_page(request, session, "admin-questions.html")
@@ -402,6 +443,16 @@ def syllabus_page(request: Request, session: Session = Depends(get_session)):
 @router.get("/admin/syllabus", response_model=None)
 def admin_syllabus_page(request: Request, session: Session = Depends(get_session)):
     return _admin_page(request, session, "admin-syllabus.html")
+
+
+@router.get("/contact-us", response_model=None)
+def contact_us_page(request: Request, session: Session = Depends(get_session)):
+    """Contact Us page - accessible to authenticated users."""
+    payload = resolve_payload(request, session)
+    if payload is None:
+        return RedirectResponse(url="/login", status_code=_REDIRECT)
+
+    return FileResponse(str(_HTML_DIR / "contact-us.html"), media_type="text/html")
 
 
 @router.get("/institution/syllabus", response_model=None)

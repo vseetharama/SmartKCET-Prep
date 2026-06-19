@@ -111,9 +111,15 @@ class InstitutionResponse(BaseModel):
     
     id: UUID
     name: str
+    institution_code: Optional[str] = None
     contact_phone: str
     subscription_status: str
-    registered_at: datetime
+    registered_at: Optional[datetime] = None
+    student_count: int = 0
+    question_count: int = 0
+    exam_count: int = 0
+    plan_name: Optional[str] = None
+    next_renewal_date: Optional[str] = None
     
     class Config:
         from_attributes = True

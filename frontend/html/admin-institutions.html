@@ -63,17 +63,19 @@
     </div>
   </nav>
 
-  <div class="main-wrap">
-    <div class="section-card">
-      <div class="section-card-header">
-        <div class="section-icon" style="background:linear-gradient(135deg,rgba(8,145,178,0.2),rgba(124,58,237,0.2));">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
-        </div>
-        <div>
-          <h2>Institution Management</h2>
-          <p class="section-sub">Activate, suspend, view details and monitor all institutions</p>
-        </div>
+  <div class="main-wrap" style="max-width:100%;padding:24px 28px 80px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <div>
+        <h1 style="font-size:1.6rem;font-weight:800;margin:0 0 3px;">Institution Management</h1>
+        <p style="color:var(--muted);margin:0;font-size:0.82rem;">Activate, suspend, view details and monitor all institutions</p>
       </div>
+      <button class="btn-outline" id="refreshBtn" style="display:flex;align-items:center;gap:6px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+        Refresh
+      </button>
+    </div>
+
+    <div class="section-card">
       <div class="section-body" style="padding-bottom:0;">
         <!-- Filters -->
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
@@ -88,9 +90,7 @@
               <option value="expired">Expired</option>
             </select>
           </div>
-          <div style="margin-top:18px;">
-            <button class="btn-outline small" id="refreshBtn">Refresh</button>
-          </div>
+
         </div>
       </div>
 
@@ -142,6 +142,9 @@
       if (!user || (user.role !== 'admin' && user.role !== 'platform_admin')) {
         window.location.href = '/login';
       }
+    }).catch(function(err) {
+      console.log('[institutions] Auth check failed:', err);
+      window.location.href = '/login';
     });
 
     document.getElementById('logoutBtn').addEventListener('click', function(e) {
@@ -186,14 +189,25 @@
         '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px;">Loading…</td></tr>';
 
       fetch(url, { credentials: 'include' })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+          if (!r.ok) {
+            console.error('API error:', r.status, r.statusText);
+            var errMsg = 'API error: ' + r.status;
+            if (r.status === 403) errMsg += ' (Forbidden - check if logged in as platform_admin)';
+            if (r.status === 401) errMsg += ' (Unauthorized - session may have expired)';
+            throw new Error(errMsg);
+          }
+          return r.json();
+        })
         .then(function(data) {
+          console.log('Institutions data loaded:', data);
           allInstitutions = data.institutions || [];
           renderTable(allInstitutions);
         })
-        .catch(function() {
+        .catch(function(err) {
+          console.error('Load error:', err);
           document.getElementById('instTableBody').innerHTML =
-            '<tr><td colspan="8" style="text-align:center;color:var(--red-l);padding:32px;">Failed to load. Please retry.</td></tr>';
+            '<tr><td colspan="8" style="text-align:center;color:var(--red-l);padding:32px;">⚠️ Failed to load: ' + escapeHtml(err.message || 'Unknown error') + '</td></tr>';
         });
     }
 
@@ -202,7 +216,7 @@
       var tbody = document.getElementById('instTableBody');
 
       if (institutions.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px;">No institutions found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px;">No institutions found</td></tr>';
         return;
       }
 

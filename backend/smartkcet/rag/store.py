@@ -13,23 +13,64 @@ Per-subject isolation contract (REQ-5.1, REQ-8.5, design.md §2 / §2.1 / §2.2)
 The ``embedder`` (``sentence-transformers`` MiniLM) is shared across all
 subjects since it is a stateless encoder.  Only the FAISS index and the
 parallel ``chunks`` list are per-subject.
+
+NOTE: Python 3.14 compatibility
+-------
+
+``sentence-transformers`` hangs on import with Python 3.14 (model loading issues).
+We defer embedder initialization until first use via a lazy loader.
 """
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Union
+from typing import Dict, Iterable, List, Optional, Union
 
 import faiss
-from sentence_transformers import SentenceTransformer
 
 from ..db.models import Subject
 
-# Embedding model is loaded lazily-once at import time so the FastAPI app
-# does not pay the cost on every request.  ``all-MiniLM-L6-v2`` produces
-# 384-dimensional vectors which matches ``VectorStore.dim`` below.
-embedder = SentenceTransformer("all-MiniLM-L6-v2")
+# Lazy embedder initialization to avoid hang on Python 3.14
+# The model is not loaded until first use
+_embedder: Optional[object] = None
+_embedder_loading_attempted = False
+
+
+def _get_embedder():
+    """Lazy load the SentenceTransformer embedder on first use."""
+    global _embedder, _embedder_loading_attempted
+    
+    if _embedder is not None:
+        return _embedder
+    
+    if _embedder_loading_attempted and _embedder is None:
+        # Already tried to load and failed - don't retry
+        raise RuntimeError(
+            "sentence-transformers not available. "
+            "Embedding/FAISS functionality will not work."
+        )
+    
+    try:
+        from sentence_transformers import SentenceTransformer
+        _embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        _embedder_loading_attempted = True
+        return _embedder
+    except Exception as e:
+        _embedder_loading_attempted = True
+        raise RuntimeError(f"Failed to load sentence-transformers: {e}")
+
+
+# For backward compatibility, provide an embedder property that lazy-loads
+class _EmbedderProxy:
+    """Proxy that lazy-loads the embedder on first access."""
+    def encode(self, *args, **kwargs):
+        embedder = _get_embedder()
+        return embedder.encode(*args, **kwargs)
+
+
+embedder = _EmbedderProxy()
 
 # ``backend/data/faiss/`` resolved relative to the backend root, mirroring
 # the path-resolution pattern used by ``smartkcet.db.session``.

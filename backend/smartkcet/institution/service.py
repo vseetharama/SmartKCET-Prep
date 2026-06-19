@@ -78,6 +78,55 @@ class InstitutionService:
         """
         self.db = db
 
+    def _generate_institution_code(self, institution_name: str) -> str:
+        """Generate a unique, URL-safe institution code from name.
+        
+        Converts the institution name to a lowercase alphanumeric code
+        by removing spaces and special characters. If the code already
+        exists, appends a number to ensure uniqueness.
+        
+        Examples:
+            "SMVIT Manipal" → "smvitmanipai" → "smvitm" (first 7 chars for demo)
+            "XYZ Institute" → "xyzinstitute"
+        
+        Args:
+            institution_name: Full name of the institution
+            
+        Returns:
+            Unique institution code (lowercase, alphanumeric only, max 20 chars)
+        """
+        import re
+        
+        # Remove leading/trailing whitespace and convert to lowercase
+        base_code = institution_name.strip().lower()
+        
+        # Keep only alphanumeric characters (remove spaces, special chars)
+        base_code = re.sub(r'[^a-z0-9]', '', base_code)
+        
+        # Limit to 20 chars (DB column length)
+        base_code = base_code[:20]
+        
+        # Check if this code already exists
+        existing = self.db.query(Institution).filter(
+            Institution.institution_code == base_code
+        ).first()
+        
+        if existing is None:
+            return base_code
+        
+        # If it exists, append a number suffix to make it unique
+        for i in range(1, 1000):
+            candidate = base_code[:19] + str(i)  # Leave room for number
+            existing = self.db.query(Institution).filter(
+                Institution.institution_code == candidate
+            ).first()
+            if existing is None:
+                return candidate
+        
+        # Fallback (should rarely happen)
+        import uuid
+        return (base_code[:10] + str(uuid.uuid4())[:8])[:20]
+
     def register_institution(
         self, data: InstitutionRegistrationData
     ) -> InstitutionRegistrationResponse:
@@ -169,6 +218,7 @@ class InstitutionService:
                 contact_phone=data.contact_phone,
                 subscription_status="inactive",
                 registered_at=now,
+                institution_code=self._generate_institution_code(data.name),
             )
             self.db.add(institution)
             self.db.flush()  # Flush to get institution ID
@@ -257,6 +307,14 @@ class InstitutionService:
                     f"Maximum pending invitations (50) reached for institution {institution_id}"
                 )
             
+            # Get the next sequence number for this institution
+            max_sequence = (
+                self.db.query(Invitation)
+                .filter(Invitation.institution_id == institution_id)
+                .count()
+            )
+            next_sequence = max_sequence + 1
+            
             # Generate secure random code (minimum 32 alphanumeric characters)
             # Using secrets.token_urlsafe which generates URL-safe base64 strings
             # 32 bytes = 43 base64 characters (> 32 requirement)
@@ -269,6 +327,7 @@ class InstitutionService:
             invitation = Invitation(
                 institution_id=institution_id,
                 code=code,
+                sequence_number=next_sequence,  # NEW: Add sequence number
                 status="pending",
                 consumed_by=None,
                 created_at=now,

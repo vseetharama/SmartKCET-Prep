@@ -36,12 +36,31 @@ from ..db.models import IndexedFile, Question, Subject
 from ..db.session import get_async_session as get_session
 from ..middleware.rbac import require_admin
 from ..rag.mcq_extractor import extract_or_generate_mcqs
-from ..rag.parsing import (
-    chunk_text,
-    extract_text_from_docx,
-    extract_text_from_pdf,
-    extract_text_from_txt,
-)
+
+# Graceful degradation for Python 3.14 compatibility
+# pytesseract is not available in Python 3.14 (pkgutil.find_loader removed)
+try:
+    from ..rag.parsing import (
+        chunk_text,
+        extract_text_from_docx,
+        extract_text_from_pdf,
+        extract_text_from_txt,
+    )
+    PARSING_AVAILABLE = True
+except ImportError as e:
+    logger = logging.getLogger("smartkcet.admin.upload")
+    logger.warning(
+        "RAG parsing module not available (Python 3.14 compatibility): %s. "
+        "File upload functionality will be limited.",
+        e,
+    )
+    PARSING_AVAILABLE = False
+    # Provide stub functions so the module can still be imported
+    chunk_text = None
+    extract_text_from_docx = None
+    extract_text_from_pdf = None
+    extract_text_from_txt = None
+
 from ..rag.store import stores
 
 logger = logging.getLogger("smartkcet.admin.upload")

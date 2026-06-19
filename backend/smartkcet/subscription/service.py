@@ -92,14 +92,10 @@ class SubscriptionService:
         
         # Create new free subscription
         now = datetime.utcnow()
-        # Ensure plan_id is properly formatted UUID string with hyphens
-        plan_id_str = str(free_plan.id) if isinstance(free_plan.id, str) else str(free_plan.id)
-        if len(plan_id_str) == 32 and '-' not in plan_id_str:  # Unhyphenated UUID
-            plan_id_str = f"{plan_id_str[:8]}-{plan_id_str[8:12]}-{plan_id_str[12:16]}-{plan_id_str[16:20]}-{plan_id_str[20:]}"
         
         subscription = Subscription(
             user_id=user_id,
-            plan_id=plan_id_str,
+            plan_id=free_plan.id,  # Use UUID directly
             status="active",
             start_date=now,
             current_period_start=now,
@@ -211,14 +207,10 @@ class SubscriptionService:
         
         # Create new trial subscription
         now = datetime.utcnow()
-        # Ensure plan_id is properly formatted UUID string with hyphens
-        plan_id_str = str(free_trial_plan.id) if isinstance(free_trial_plan.id, str) else str(free_trial_plan.id)
-        if len(plan_id_str) == 32 and '-' not in plan_id_str:  # Unhyphenated UUID
-            plan_id_str = f"{plan_id_str[:8]}-{plan_id_str[8:12]}-{plan_id_str[12:16]}-{plan_id_str[16:20]}-{plan_id_str[20:]}"
         
         subscription = Subscription(
             user_id=user_id,
-            plan_id=plan_id_str,
+            plan_id=free_trial_plan.id,  # Use UUID directly
             status="trial",
             start_date=now,
             current_period_start=now,
@@ -315,7 +307,7 @@ class SubscriptionService:
         # Create new Pro subscription
         subscription = Subscription(
             user_id=user_id,
-            plan_id=str(pro_plan.id),  # Ensure UUID is converted to string
+            plan_id=pro_plan.id,  # Use UUID directly, not as string
             status="active",
             start_date=now,
             current_period_start=now,
@@ -467,10 +459,9 @@ class SubscriptionService:
 
             inst_plan = None
             if inst_sub:
-                from sqlalchemy import cast, String
                 inst_plan = (
                     self.db.query(SubscriptionPlan)
-                    .filter(cast(SubscriptionPlan.id, String) == cast(inst_sub.plan_id, String))
+                    .filter(SubscriptionPlan.id == inst_sub.plan_id)
                     .first()
                 )
 
@@ -492,7 +483,6 @@ class SubscriptionService:
             )
         
         # Single query with all necessary joins
-        from sqlalchemy import cast, String
         result = (
             self.db.query(
                 Subscription,
@@ -500,7 +490,7 @@ class SubscriptionService:
                 User,
                 Institution
             )
-            .outerjoin(SubscriptionPlan, cast(Subscription.plan_id, String) == cast(SubscriptionPlan.id, String))
+            .outerjoin(SubscriptionPlan, Subscription.plan_id == SubscriptionPlan.id)
             .outerjoin(User, Subscription.user_id == User.id)
             .outerjoin(Institution, User.institution_id == Institution.id)
             .filter(
@@ -878,6 +868,426 @@ class SubscriptionService:
         raise NotImplementedError(
             "check_pending_renewals will be implemented in Task 3.4"
         )
+
+    def can_change_subscription(self, user_id: UUID) -> tuple[bool, str | None]:
+        """Check if user is allowed to change/upgrade their subscription plan.
+        
+        Business Rules:
+        - Free plan users can upgrade to any paid plan (Trial, Monthly, Yearly)
+        - Paid plan users (Trial, Monthly, Yearly) CANNOT change until expiry
+        - Expired subscriptions can be re-selected
+        
+        Args:
+            user_id: UUID of the user to check
+            
+        Returns:
+            Tuple of (can_change: bool, error_message: str or None)
+            - (True, None) if user can change plan
+            - (False, error_message) if user has an active PAID subscription
+            
+        Raises:
+            ValueError: If user does not exist
+        """
+        from ..db.models import User
+        
+        # Fetch user
+        user = self.db.query(User).filter(User.id == user_id).first()
+        
+        if not user:
+            raise ValueError(f"User {user_id} not found")
+        
+        # Check for active subscription (trial, active, overdue, grace_period)
+        active_subscription = (
+            self.db.query(Subscription)
+            .filter(
+                Subscription.user_id == user_id,
+                Subscription.status.in_(["trial", "active", "overdue", "grace_period"])
+            )
+            .first()
+        )
+        
+        if not active_subscription:
+            # No active subscription - user can change
+            return (True, None)
+        
+        # Get the plan details to check if it's free or paid
+        plan = (
+            self.db.query(SubscriptionPlan)
+            .filter(SubscriptionPlan.id == active_subscription.plan_id)
+            .first()
+        )
+        
+        plan_name = plan.name if plan else "your current plan"
+        
+        # KEY BUSINESS RULE: Free plan users can upgrade to any paid plan
+        if plan and plan.price == 0:
+            # Free plan - allow upgrade to paid plans
+            return (True, None)
+        
+        # For PAID plans (Trial, Monthly, Yearly), block until expiry
+        # Calculate days remaining
+        if active_subscription.next_renewal_date:
+            from datetime import datetime as dt
+            remaining_days = (active_subscription.next_renewal_date - dt.utcnow()).days
+            remaining_days = max(0, remaining_days)
+            
+            error_msg = (
+                f"You have an active {plan_name} subscription. "
+                f"Your current subscription expires in {remaining_days} days. "
+                f"Please wait for it to expire before selecting a new plan."
+            )
+        else:
+            error_msg = (
+                f"You have an active {plan_name} subscription. "
+                f"Please wait for it to expire before selecting a new plan."
+            )
+        
+        return (False, error_msg)
+
+    def needs_subscription_selection(self, user_id: UUID) -> bool:
+        """Check if user must select a subscription plan via popup.
+        
+        Returns True ONLY if:
+        - user.student_subtype == 'direct_subscriber' AND
+        - user has NO active subscription (status NOT IN ['trial', 'active', 'overdue', 'grace_period'])
+        
+        Returns False for:
+        - Institution-linked students (ALWAYS)
+        - Any user with an active subscription
+        - Non-student users
+        
+        Args:
+            user_id: UUID of the user to check
+            
+        Returns:
+            bool: True if popup should be shown, False otherwise
+            
+        Raises:
+            ValueError: If user does not exist
+        """
+        from ..db.models import User
+        
+        # Fetch user
+        user = self.db.query(User).filter(User.id == user_id).first()
+        
+        if not user:
+            raise ValueError(f"User {user_id} not found")
+        
+        # Institution-linked students NEVER see popup
+        if user.student_subtype == "institution_linked":
+            return False
+        
+        # Non-direct-subscribers don't see popup (only direct_subscriber)
+        if user.student_subtype != "direct_subscriber":
+            return False
+        
+        # Check if user has an active subscription
+        active_subscription = (
+            self.db.query(Subscription)
+            .filter(
+                Subscription.user_id == user_id,
+                Subscription.status.in_(["trial", "active", "overdue", "grace_period"])
+            )
+            .first()
+        )
+        
+        # Return True if NO active subscription exists
+        return active_subscription is None
+
+    def get_available_plans_for_selection(self) -> list[dict]:
+        """Get the 4 subscription plans available for popup selection.
+        
+        Returns plans in this order:
+        1. Free (₹0)
+        2. 7-Day Premium Trial (₹99)
+        3. Pro Monthly (₹349)
+        4. Pro Yearly (₹2,999)
+        
+        Returns:
+            List of plan dicts with id, name, price, and other details
+            
+        Raises:
+            ValueError: If any required plan is not found or inactive
+        """
+        # Define the expected plans for the popup
+        plan_names = [
+            "Free",
+            "7-Day Premium Trial",
+            "Pro Monthly",
+            "Pro Yearly"
+        ]
+        
+        # Query all required plans at once
+        plans = (
+            self.db.query(SubscriptionPlan)
+            .filter(
+                SubscriptionPlan.name.in_(plan_names),
+                SubscriptionPlan.is_active == True
+            )
+            .all()
+        )
+        
+        # Verify all plans were found
+        found_names = {plan.name for plan in plans}
+        missing_names = set(plan_names) - found_names
+        
+        if missing_names:
+            raise ValueError(
+                f"Required subscription plans not found or inactive: {', '.join(sorted(missing_names))}"
+            )
+        
+        # Sort plans by price to ensure consistent ordering (Free, Trial, Monthly, Yearly)
+        plans_sorted = sorted(plans, key=lambda p: (float(p.price), p.name))
+        
+        # Convert to dict format for API response
+        return [
+            {
+                "id": str(plan.id),
+                "name": plan.name,
+                "price": float(plan.price),
+                "plan_type": plan.plan_type,
+                "billing_period": plan.billing_period,
+                "max_test_attempts_per_period": plan.max_test_attempts_per_period,
+                "is_active": plan.is_active,
+            }
+            for plan in plans_sorted
+        ]
+
+
+    # ─────────────────────────────────────────────────────────────────────
+    # PHASE 2: Subscription Management - Button State Logic
+    # ─────────────────────────────────────────────────────────────────────
+
+    def get_subscription_management_status(self, user_id: UUID) -> dict:
+        """Get subscription status and button states for plan management page.
+        
+        Returns current subscription info and the state of each plan button
+        (enabled, disabled, or current) based on subscription status.
+        
+        Used by: GET /api/user/subscription-management
+        
+        Args:
+            user_id: UUID of the user
+            
+        Returns:
+            dict with keys:
+            - has_active_subscription: bool
+            - current_plan: dict or None (id, name, price, billing_period, is_expired)
+            - subscription_status: str or None ('active', 'trial', 'expired', etc.)
+            - next_renewal_date: ISO8601 str or None
+            - available_plans: list of dicts with button states
+            
+        Raises:
+            ValueError: If user not found
+        """
+        from ..db.models import User
+        
+        # Fetch user
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise ValueError(f"User {user_id} not found")
+        
+        # Query active subscription
+        active_sub = (
+            self.db.query(Subscription)
+            .filter(
+                Subscription.user_id == user_id,
+                Subscription.status.in_(["trial", "active", "overdue", "grace_period"])
+            )
+            .first()
+        )
+        
+        # No subscription → all plans available
+        if not active_sub:
+            all_plans = self._get_all_individual_plans()
+            return {
+                "has_active_subscription": False,
+                "current_plan": None,
+                "subscription_status": None,
+                "next_renewal_date": None,
+                "available_plans": [
+                    self._plan_to_response_dict(plan, "enabled", "Select Plan")
+                    for plan in all_plans
+                ]
+            }
+        
+        # Get current plan details
+        current_plan = (
+            self.db.query(SubscriptionPlan)
+            .filter(SubscriptionPlan.id == active_sub.plan_id)
+            .first()
+        )
+        
+        if not current_plan:
+            raise ValueError(f"Plan {active_sub.plan_id} not found")
+        
+        # Get all plans and calculate button states
+        all_plans = self._get_all_individual_plans()
+        
+        available_plans = []
+        for plan in all_plans:
+            button_state = self._get_button_state(
+                current_plan_name=current_plan.name,
+                target_plan_name=plan.name,
+                subscription_status=active_sub.status
+            )
+            button_label = self._get_button_label(button_state)
+            
+            available_plans.append(
+                self._plan_to_response_dict(plan, button_state, button_label)
+            )
+        
+        return {
+            "has_active_subscription": True,
+            "current_plan": {
+                "id": str(current_plan.id),
+                "name": current_plan.name,
+                "price": float(current_plan.price),
+                "billing_period": current_plan.billing_period,
+                "is_expired": active_sub.status == "expired"
+            },
+            "subscription_status": active_sub.status,
+            "next_renewal_date": active_sub.next_renewal_date.isoformat() if active_sub.next_renewal_date else None,
+            "available_plans": available_plans
+        }
+
+    def _get_button_state(
+        self,
+        current_plan_name: str,
+        target_plan_name: str,
+        subscription_status: str
+    ) -> str:
+        """Calculate button state for a plan given current subscription status.
+        
+        Returns: "enabled", "disabled", or "current"
+        
+        Logic:
+        - Expired/Cancelled: all plans "enabled" (can select fresh)
+        - Current plan: always "current" (locked)
+        - Trial users: all others "disabled" (cannot switch)
+        - Monthly users: all others "disabled" (cannot switch)
+        - Yearly users: all others "disabled" (highest tier, locked)
+        - Free users: others "enabled" (can upgrade)
+        
+        Args:
+            current_plan_name: Name of user's current plan
+            target_plan_name: Name of plan to check
+            subscription_status: Status of current subscription
+            
+        Returns:
+            "enabled", "disabled", or "current"
+        """
+        # Expired/cancelled subscriptions: all plans available
+        if subscription_status in ["expired", "cancelled"]:
+            return "current" if current_plan_name == target_plan_name else "enabled"
+        
+        # Current plan: always locked
+        if current_plan_name == target_plan_name:
+            return "current"
+        
+        # Trial users: locked to trial (all others disabled)
+        if current_plan_name == "7-Day Premium Trial":
+            return "disabled"
+        
+        # Monthly users: locked to monthly (all others disabled)
+        if current_plan_name == "Pro Monthly":
+            return "disabled"
+        
+        # Yearly users: locked to yearly (highest tier, all others disabled)
+        if current_plan_name == "Pro Yearly":
+            return "disabled"
+        
+        # Free users: others can be selected (enabled)
+        if current_plan_name == "Free":
+            return "enabled"
+        
+        # Default: disabled (safety)
+        return "disabled"
+
+    def _get_button_label(self, button_state: str) -> str:
+        """Get user-facing button label for a button state.
+        
+        Args:
+            button_state: "enabled", "disabled", or "current"
+            
+        Returns:
+            User-friendly label string
+        """
+        if button_state == "current":
+            return "🔒 Current Plan"
+        elif button_state == "disabled":
+            return "🚫 Locked"
+        else:
+            return "✅ Select Plan"
+
+    def _get_all_individual_plans(self) -> list[SubscriptionPlan]:
+        """Get all 4 individual subscription plans in standard order.
+        
+        Order: Free, 7-Day Trial, Pro Monthly, Pro Yearly (by price ascending)
+        
+        Returns:
+            List of SubscriptionPlan objects
+            
+        Raises:
+            ValueError: If any required plan not found or not active
+        """
+        # Define expected plans
+        plan_names = [
+            "Free",
+            "7-Day Premium Trial",
+            "Pro Monthly",
+            "Pro Yearly"
+        ]
+        
+        # Query all required plans
+        plans = (
+            self.db.query(SubscriptionPlan)
+            .filter(
+                SubscriptionPlan.plan_type == "individual",
+                SubscriptionPlan.is_active == True,
+                SubscriptionPlan.name.in_(plan_names)
+            )
+            .all()
+        )
+        
+        # Verify all plans were found
+        found_names = {plan.name for plan in plans}
+        missing_names = set(plan_names) - found_names
+        
+        if missing_names:
+            import logging
+            logging.getLogger("smartkcet.subscription").warning(
+                f"Some subscription plans not found or inactive: {missing_names}"
+            )
+        
+        # Sort by price to ensure consistent ordering
+        return sorted(plans, key=lambda p: (float(p.price), p.name))
+
+    def _plan_to_response_dict(
+        self,
+        plan: SubscriptionPlan,
+        button_state: str,
+        button_label: str
+    ) -> dict:
+        """Convert SubscriptionPlan to API response dict with button state.
+        
+        Args:
+            plan: SubscriptionPlan object
+            button_state: "enabled", "disabled", or "current"
+            button_label: User-facing label
+            
+        Returns:
+            dict with plan info and button state
+        """
+        return {
+            "id": str(plan.id),
+            "name": plan.name,
+            "price": float(plan.price),
+            "plan_type": plan.plan_type,
+            "billing_period": plan.billing_period,
+            "button_state": button_state,
+            "button_label": button_label,
+        }
 
 
 __all__ = ["SubscriptionService"]

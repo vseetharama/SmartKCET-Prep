@@ -67,6 +67,7 @@ router.include_router(exams_router)
 router.include_router(leaderboard_router)
 router.include_router(analytics_router)
 router.include_router(dashboard_router)
+router.include_router(dashboard_router)
 router.include_router(platform_admin_router)
 router.include_router(syllabus_router)
 

@@ -151,6 +151,7 @@
 
   <!-- Scripts -->
   <script src="../js/auth.js"></script>
+  <script src="../js/institution-access-control.js"></script>
   <script>
   (function () {
     'use strict';
@@ -168,6 +169,136 @@
       fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
         .finally(function() { window.location.href = '/login'; });
     });
+
+    // ── Subscription check for action buttons ───────────────────────────────
+    function checkSubscriptionAndShowModal() {
+      return new Promise(function(resolve) {
+        fetch('/api/institution/subscription', {
+          method: 'GET',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          var status = data.subscription_status;
+          // If status is null or undefined, show modal
+          if (status === null || status === undefined) {
+            showSubscriptionRequiredModal();
+            resolve(false);
+            return;
+          }
+          // If status is active/trial, allow action
+          if (status === 'active' || status === 'trial') {
+            resolve(true);
+            return;
+          }
+          // For other statuses (expired, overdue, etc.), block
+          showSubscriptionRequiredModal();
+          resolve(false);
+        })
+        .catch(function(err) {
+          console.error('Failed to check subscription:', err);
+          showSubscriptionRequiredModal();
+          resolve(false);
+        });
+      });
+    }
+
+    function showSubscriptionRequiredModal() {
+      var overlay = document.createElement('div');
+      overlay.id = 'subscriptionRequiredModal';
+      overlay.style.cssText = `
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(8px);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      `;
+
+      var dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: var(--s1);
+        border: 1px solid var(--border2);
+        border-radius: 14px;
+        padding: 36px;
+        max-width: 480px;
+        width: 100%;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      `;
+      dialog.innerHTML = `
+        <div style="text-align: center; margin-bottom: 28px;">
+          <div style="font-size: 2.8rem; margin-bottom: 12px;">🔒</div>
+          <h2 style="font-size: 1.4rem; font-weight: 800; margin: 0 0 6px; color: var(--text);">Subscription Required</h2>
+          <p style="color: var(--muted); font-size: 0.88rem; margin: 0;">This feature requires an active subscription. Please select a plan to continue.</p>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <button id="goToPlanBtnExams" style="
+            padding: 10px 18px;
+            background: linear-gradient(135deg, var(--inst-accent), var(--inst-accent-dark));
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+          ">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+            Select Plan
+          </button>
+          <button id="closeModalBtnExams" style="
+            padding: 10px 18px;
+            background: transparent;
+            border: 1px solid var(--inst-accent-border);
+            border-radius: 8px;
+            color: var(--inst-accent-light);
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+          ">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            Close
+          </button>
+        </div>
+      `;
+
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      var planBtn = document.getElementById('goToPlanBtnExams');
+      if (planBtn) {
+        planBtn.addEventListener('click', function() {
+          window.location.href = '/institution/subscription';
+        });
+      }
+
+      var closeBtn = document.getElementById('closeModalBtnExams');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', function() {
+          overlay.remove();
+        });
+      }
+
+      // Close on overlay click
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) {
+          overlay.remove();
+        }
+      });
+    }
 
     // ── State ────────────────────────────────────────────────────────────
     var exams = [];
@@ -259,42 +390,46 @@
         return;
       }
 
-      var btn = document.getElementById('createExamBtn');
-      btn.disabled = true;
-      btn.textContent = 'Creating…';
+      // Check subscription before allowing exam creation
+      checkSubscriptionAndShowModal().then(function(allowed) {
+        if (!allowed) return;
+        
+        var btn = document.getElementById('createExamBtn');
+        btn.disabled = true;
+        btn.textContent = 'Creating…';
 
-      var url = '/api/institution/content/exams?subject=' + encodeURIComponent(subject);
-      if (examName) {
-        url += '&exam_name=' + encodeURIComponent(examName);
-      }
+        var url = '/api/institution/content/exams?subject=' + encodeURIComponent(subject);
+        if (examName) {
+          url += '&exam_name=' + encodeURIComponent(examName);
+        }
 
-      fetch(url, {
-        method: 'POST',
-        credentials: 'include',
-      })
-        .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; }); })
-        .then(function (result) {
-          btn.disabled = false;
-          btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create Exam';
-
-          if (result.ok) {
-            showMessage(msgEl, 'Exam created successfully for ' + subject + '!', 'success');
-            loadExams();
-          } else if (result.status === 422) {
-            var d = result.data;
-            showMessage(msgEl, 'Cannot create exam: Your institution\'s ' + subject + ' bank has only ' + (d.count || 0) + ' questions (need ' + (d.required || 80) + '). Upload more question papers first.', 'error');
-          } else if (result.status === 403) {
-            showMessage(msgEl, (result.data && result.data.message) || 'Subscription inactive. Please renew to create exams.', 'error');
-          } else {
-            showMessage(msgEl, (result.data && result.data.message) || 'Failed to create exam.', 'error');
-          }
+        fetch(url, {
+          method: 'POST',
+          credentials: 'include',
         })
-        .catch(function () {
-          btn.disabled = false;
-          btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create Exam';
-          showMessage(msgEl, 'Network error. Please try again.', 'error');
-        });
-    });
+          .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; }); })
+          .then(function (result) {
+            btn.disabled = false;
+            btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create Exam';
+
+            if (result.ok) {
+              showMessage(msgEl, 'Exam created successfully for ' + subject + '!', 'success');
+              loadExams();
+            } else if (result.status === 422) {
+              var d = result.data;
+              showMessage(msgEl, 'Cannot create exam: Your institution\'s ' + subject + ' bank has only ' + (d.count || 0) + ' questions (need ' + (d.required || 80) + '). Upload more question papers first.', 'error');
+            } else if (result.status === 403) {
+              showMessage(msgEl, (result.data && result.data.message) || 'Subscription inactive. Please renew to create exams.', 'error');
+            } else {
+              showMessage(msgEl, (result.data && result.data.message) || 'Failed to create exam.', 'error');
+            }
+          })
+          .catch(function () {
+            btn.disabled = false;
+            btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create Exam';
+            showMessage(msgEl, 'Network error. Please try again.', 'error');
+          });
+      });
 
     // ── Helpers ──────────────────────────────────────────────────────────
     function showMessage(el, text, type) {

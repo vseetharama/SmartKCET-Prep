@@ -6,6 +6,84 @@
   <title>Manage Students — SmartKCET Institution Portal</title>
   <link rel="stylesheet" href="../css/style.css"/>
   <link rel="stylesheet" href="../css/institution.css"/>
+  <style>
+    /* Copy code button styling */
+    .btn-copy-code {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      transition: color 0.2s, transform 0.15s;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    .btn-copy-code:hover {
+      color: var(--purple-l, #a78bfa);
+      transform: scale(1.1);
+    }
+    .btn-copy-code:active {
+      transform: scale(0.95);
+    }
+    
+    /* Fix table column alignment */
+    .responsive-table-wrapper table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    .responsive-table-wrapper table thead th {
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    
+    .responsive-table-wrapper table thead th:last-child {
+      text-align: right;
+    }
+    
+    .responsive-table-wrapper table tbody td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    
+    .responsive-table-wrapper table tbody td:last-child {
+      text-align: right;
+    }
+    
+    /* Code cell with flex container */
+    .code-cell-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+    
+    .invitation-code-cell {
+      font-family: monospace;
+      font-size: 0.85rem;
+      background: rgba(167, 139, 250, 0.1);
+      padding: 4px 8px;
+      border-radius: 4px;
+      white-space: nowrap;
+      color: var(--purple-l, #a78bfa);
+    }
+    
+    /* Invitation number label */
+    .invitation-number-label {
+      font-weight: 500;
+      font-size: 0.95rem;
+      color: var(--text);
+      white-space: nowrap;
+    }
+  </style>
 </head>
 <body>
   <div class="bg-mesh"></div>
@@ -167,14 +245,17 @@
 
     <!-- ───────────────────────── Pending Invitations Section ───────────────────────── -->
     <section class="section-card" aria-labelledby="invitationsListHeading" style="margin-top:24px;">
-      <div class="section-card-header">
-        <div class="section-icon institution" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+      <div class="section-card-header" style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div style="display:flex;align-items:flex-start;gap:12px;flex:1;">
+          <div class="section-icon institution" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </div>
+          <div>
+            <h2 id="invitationsListHeading">Pending Invitations</h2>
+            <p class="section-sub">Invitations waiting for a student to accept</p>
+          </div>
         </div>
-        <div>
-          <h2 id="invitationsListHeading">Pending Invitations</h2>
-          <p class="section-sub">Invitations waiting for a student to accept</p>
-        </div>
+        <div style="display:flex;align-items:center;justify-content:center;min-width:48px;height:48px;border-radius:8px;background:rgba(167,139,250,0.1);font-size:1.5rem;font-weight:600;color:var(--purple-l,#a78bfa);" data-invitations-count>0</div>
       </div>
       <div class="section-body">
         <!-- Loading state -->
@@ -220,7 +301,6 @@
                 <th scope="col">Created Date</th>
                 <th scope="col">Expiry Date</th>
                 <th scope="col">Status</th>
-                <th scope="col" style="text-align:right;">Action</th>
               </tr>
             </thead>
             <tbody id="invitationsTableBody">
@@ -341,6 +421,7 @@
   <script src="../js/error-handler.js"></script>
   <script src="../js/focus-trap.js"></script>
   <script src="../js/institution-portal.js"></script>
+  <script src="../js/institution-access-control.js"></script>
   <script>
     // Activate the client-side router so in-app <a href> clicks honour
     // role-based access control and unauthenticated users are bounced to
@@ -355,6 +436,151 @@
           e.preventDefault();
           fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
             .finally(function () { window.location.href = '/login'; });
+        });
+      }
+    })();
+
+    // ── Subscription check for action buttons ───────────────────────────────
+    function checkSubscriptionAndShowModal() {
+      return new Promise(function(resolve) {
+        fetch('/api/institution/subscription', {
+          method: 'GET',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          var status = data.subscription_status;
+          // If status is null or undefined, show modal
+          if (status === null || status === undefined) {
+            showSubscriptionRequiredModal();
+            resolve(false);
+            return;
+          }
+          // If status is active/trial, allow action
+          if (status === 'active' || status === 'trial') {
+            resolve(true);
+            return;
+          }
+          // For other statuses (expired, overdue, etc.), block
+          showSubscriptionRequiredModal();
+          resolve(false);
+        })
+        .catch(function(err) {
+          console.error('Failed to check subscription:', err);
+          showSubscriptionRequiredModal();
+          resolve(false);
+        });
+      });
+    }
+
+    function showSubscriptionRequiredModal() {
+      var overlay = document.createElement('div');
+      overlay.id = 'subscriptionRequiredModal';
+      overlay.style.cssText = `
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(8px);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      `;
+
+      var dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: var(--s1);
+        border: 1px solid var(--border2);
+        border-radius: 14px;
+        padding: 36px;
+        max-width: 480px;
+        width: 100%;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      `;
+      dialog.innerHTML = `
+        <div style="text-align: center; margin-bottom: 28px;">
+          <div style="font-size: 2.8rem; margin-bottom: 12px;">🔒</div>
+          <h2 style="font-size: 1.4rem; font-weight: 800; margin: 0 0 6px; color: var(--text);">Subscription Required</h2>
+          <p style="color: var(--muted); font-size: 0.88rem; margin: 0;">This feature requires an active subscription. Please select a plan to continue.</p>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <button id="goToPlanBtnStudents" style="
+            padding: 10px 18px;
+            background: linear-gradient(135deg, var(--inst-accent), var(--inst-accent-dark));
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+          ">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+            Select Plan
+          </button>
+          <button id="closeModalBtnStudents" style="
+            padding: 10px 18px;
+            background: transparent;
+            border: 1px solid var(--inst-accent-border);
+            border-radius: 8px;
+            color: var(--inst-accent-light);
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+          ">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            Close
+          </button>
+        </div>
+      `;
+
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      var planBtn = document.getElementById('goToPlanBtnStudents');
+      if (planBtn) {
+        planBtn.addEventListener('click', function() {
+          window.location.href = '/institution/subscription';
+        });
+      }
+
+      var closeBtn = document.getElementById('closeModalBtnStudents');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', function() {
+          overlay.remove();
+        });
+      }
+
+      // Close on overlay click
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) {
+          overlay.remove();
+        }
+      });
+    }
+
+    // Wire Invite Student button
+    (function() {
+      var inviteBtn = document.getElementById('inviteStudentBtn');
+      if (inviteBtn) {
+        inviteBtn.addEventListener('click', function(e) {
+          e.preventDefault();
+          checkSubscriptionAndShowModal().then(function(allowed) {
+            if (allowed && window.InstitutionStudents && typeof window.InstitutionStudents._onInviteClick === 'function') {
+              window.InstitutionStudents._onInviteClick();
+            }
+          });
         });
       }
     })();

@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from ..db.models import User
 from ..db.session import get_async_session as get_session
 from .admin_config import load_admin_credentials
-from .identity import next_kcet_id
+from .identity import next_kcet_id, next_institution_student_id
 from .passwords import hash_password, verify_password
 from .tokens import (
     ADMIN_TOKEN_TTL_SEC,
@@ -136,19 +136,19 @@ class LoginRequest(BaseModel):
 def register(payload: RegisterRequest, session: Session = Depends(get_session)) -> Any:
     """Register a new student account.
 
-    Order of operations is mandated by REQ-1.2 and REQ-1.3:
+    Order of operations:
+    1. Pure validation (no DB, no hashing)
+    2. Duplicate-email SELECT (DB)
+    3. Check if invite code is valid (if provided)
+    4. hash_password (only if step 2 found nothing)
+    5. Generate appropriate student ID (KCET#### or institution-specific)
+    6. INSERT user with ID
 
-    1. Pure validation (no DB, no hashing).
-    2. Duplicate-email ``SELECT`` (DB).
-    3. ``hash_password`` (only if step 2 found nothing).
-    4. ``INSERT`` user with freshly minted KCET_Student_ID.
-
-    Steps 3 and 4 share a transaction so a crash between them leaves the
-    DB clean.  The ``UNIQUE`` constraint on ``users.email`` provides a
-    last-line race guard.
+    Steps 4, 5, and 6 share a transaction so a crash leaves the DB clean.
+    The UNIQUE constraint on users.email and users.kcet_student_id provides race guards.
     """
 
-    # Step 1 — validation.  No DB / no hashing yet.
+    # Step 1 — validation. No DB / no hashing yet.
     email_v = validate_email(payload.email)
     if isinstance(email_v, ValidationFailure):
         return _validation_error(email_v)
@@ -163,7 +163,7 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)) 
 
     normalised_email = email_v.lower()
 
-    # Step 2 — duplicate-email pre-check.  Runs BEFORE hash_password.
+    # Step 2 — duplicate-email pre-check. Runs BEFORE hash_password.
     existing = session.execute(
         select(User.id).where(User.email == normalised_email)
     ).first()
@@ -176,14 +176,76 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)) 
             },
         )
 
-    # Step 3 — hashing.  Reachable only when the email is free.
+    # Step 3 — Check if invite code is provided and valid
+    invitation = None
+    institution_for_linking = None
+    institution_student_id = None
+    
+    if payload.invite_code and payload.invite_code.strip():
+        invite_code = payload.invite_code.strip()
+        try:
+            from ..db.subscription_models import Invitation, Institution
+            import logging as _log
+            
+            _logger = _log.getLogger("smartkcet.auth.register")
+            
+            invitation = session.query(Invitation).filter(
+                Invitation.code == invite_code,
+                Invitation.status == "pending",
+            ).first()
+            
+            if invitation is None:
+                _logger.warning("Register invite-link: invitation code %r not found or not pending", invite_code)
+            elif invitation.expires_at is None or invitation.expires_at < datetime.utcnow():
+                _logger.warning("Register invite-link: invitation code %r expired (expires_at=%s)", invite_code, invitation.expires_at)
+                invitation = None
+            else:
+                # Get institution and check it has a code
+                institution_for_linking = session.query(Institution).filter(
+                    Institution.id == invitation.institution_id
+                ).first()
+                
+                if institution_for_linking and institution_for_linking.institution_code:
+                    # Pre-generate institution-specific ID before creating user
+                    try:
+                        institution_student_id = next_institution_student_id(
+                            session, 
+                            str(invitation.institution_id)
+                        )
+                        _logger.info(
+                            "Pre-generated institution student ID: %s for institution: %s",
+                            institution_student_id,
+                            institution_for_linking.name
+                        )
+                    except Exception as e:
+                        _logger.warning("Failed to pre-generate institution student ID: %s", e)
+                        institution_student_id = None
+                else:
+                    _logger.warning(
+                        "Institution %s does not have institution_code set",
+                        institution_for_linking.id if institution_for_linking else invitation.institution_id
+                    )
+        except Exception as e:
+            import logging
+            logging.getLogger("smartkcet.auth").warning(
+                "Failed to validate invite code %s: %s", payload.invite_code, e
+            )
+
+    # Step 4 — hashing. Reachable only when the email is free.
     password_hash = hash_password(password_v)
 
-    # Step 4 — issue KCET_Student_ID and persist user.
-    kcet_id = next_kcet_id(session)
+    # Step 5 — Generate appropriate student ID
+    if institution_student_id:
+        # Use institution-specific ID if available
+        student_id = institution_student_id
+    else:
+        # Use generic KCET#### ID
+        student_id = next_kcet_id(session)
+
+    # Step 6 — Create and persist user
     user = User(
         email=normalised_email,
-        kcet_student_id=kcet_id,
+        kcet_student_id=student_id,
         display_name=name_v,
         password_hash=password_hash,
         role="student",
@@ -203,46 +265,32 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)) 
             },
         )
 
-    # Step 5 — If invite_code provided, auto-link to institution
+    # Step 7 — If invite_code is valid, finalize institution linking
     institution_name = None
     institution_id_for_token = None
-    if payload.invite_code and payload.invite_code.strip():
-        invite_code = payload.invite_code.strip()
+    if invitation and institution_for_linking:
         try:
-            from ..db.subscription_models import Invitation, Institution
             from ..institution.service import InstitutionService
             import logging as _log
 
             _logger = _log.getLogger("smartkcet.auth.register")
-
-            inv = session.query(Invitation).filter(
-                Invitation.code == invite_code,
-                Invitation.status == "pending",
-            ).first()
-
-            if inv is None:
-                _logger.warning("Register invite-link: invitation code %r not found or not pending", invite_code)
-            elif inv.expires_at is None or inv.expires_at < datetime.utcnow():
-                _logger.warning("Register invite-link: invitation code %r expired (expires_at=%s)", invite_code, inv.expires_at)
-            else:
-                inst_service = InstitutionService(session)
-                inst_service.accept_invitation(invite_code, user.id)
-                # Refresh user to pick up institution_id and updated subtype
+            
+            inst_service = InstitutionService(session)
+            inst_service.accept_invitation(invite_code, user.id)
+            # Refresh user to pick up institution_id and updated subtype
+            session.refresh(user)
+            # Ensure subtype is set
+            if user.student_subtype != "institution_linked":
+                user.student_subtype = "institution_linked"
+                session.commit()
                 session.refresh(user)
-                # Ensure subtype is set even if transition logic had edge case
-                if user.student_subtype != "institution_linked":
-                    user.student_subtype = "institution_linked"
-                    session.commit()
-                    session.refresh(user)
-                # Get institution name for response
-                inst = session.query(Institution).filter(Institution.id == inv.institution_id).first()
-                if inst:
-                    institution_name = inst.name
-                institution_id_for_token = str(user.institution_id) if user.institution_id else None
-                _logger.info(
-                    "Register invite-link SUCCESS: user=%s subtype=%s institution_id=%s institution=%s",
-                    user.kcet_student_id, user.student_subtype, user.institution_id, institution_name,
-                )
+            
+            institution_name = institution_for_linking.name
+            institution_id_for_token = str(user.institution_id) if user.institution_id else None
+            _logger.info(
+                "Register invite-link SUCCESS: user=%s subtype=%s institution_id=%s institution=%s",
+                user.kcet_student_id, user.student_subtype, user.institution_id, institution_name,
+            )
         except Exception as e:
             # Don't fail registration if invite linking fails — user is already created
             import logging
@@ -250,10 +298,17 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)) 
                 "Auto-link to institution failed for invite code %s: %s", payload.invite_code, e
             )
 
+    # Step 8 — Build response message
+    if institution_for_linking and institution_student_id:
+        message = f"Account created! Your Student ID: {institution_student_id} ({institution_name})"
+    else:
+        message = f"Account created! Your Student ID: {student_id}"
+
     response_data = {
-        "kcet_student_id": kcet_id,
+        "kcet_student_id": student_id,
         "email": normalised_email,
         "display_name": name_v,
+        "message": message,
     }
 
     # If the student was linked to an institution, auto-login by issuing a
@@ -411,6 +466,11 @@ def login(
     if active_subscription:
         subscription_status = active_subscription.status
 
+    # Check if user needs subscription selection (for popup on frontend)
+    from ..subscription.service import SubscriptionService
+    subscription_service = SubscriptionService(session)
+    needs_subscription_selection = subscription_service.needs_subscription_selection(user.id)
+
     # Issue token with extended claims — read from DB (authoritative, not cached)
     token, _jti, _iat, _exp = issue_token(
         sub=user.kcet_student_id,
@@ -423,10 +483,11 @@ def login(
 
     import logging as _log
     _log.getLogger("smartkcet.auth.login").info(
-        "LOGIN: kcet_id=%s subtype=%s institution_id=%s redirect=%s",
+        "LOGIN: kcet_id=%s subtype=%s institution_id=%s needs_popup=%s redirect=%s",
         user.kcet_student_id,
         user.student_subtype,
         user.institution_id,
+        needs_subscription_selection,
         "/student/institution/dashboard" if user.student_subtype == "institution_linked" else "/dashboard",
     )
 
@@ -437,6 +498,8 @@ def login(
         "student_subtype": user.student_subtype,
         # redirect hint for the client — institution students go to their platform
         "redirect": "/student/institution/dashboard" if user.student_subtype == "institution_linked" else "/dashboard",
+        # Include subscription selection flag for frontend popup logic
+        "needs_subscription_selection": needs_subscription_selection,
     }
 
 
