@@ -365,7 +365,7 @@ def serve_css(filepath: str):
         with open(file_path, "rb") as f:
             content = f.read()
         return Response(content, media_type="text/css")
-    return {"error": "not_found"}, 404
+    return Response({"error": "not_found"}, status_code=404, media_type="application/json")
 
 @app.get("/js/{filepath}")
 def serve_js(filepath: str):
@@ -374,7 +374,7 @@ def serve_js(filepath: str):
         with open(file_path, "rb") as f:
             content = f.read()
         return Response(content, media_type="text/javascript")
-    return {"error": "not_found"}, 404
+    return Response({"error": "not_found"}, status_code=404, media_type="application/json")
 
 
 __all__ = ["app", "STARTUP_CONFIG"]
