@@ -21,6 +21,9 @@
       <a href="/login" class="nav-pill">Login</a>
       <a href="/institution-register" class="nav-pill active">Register Institution</a>
     </div>
+      <div class="nav-actions">
+      <button id="themeToggleBtn" class="nav-pill" type="button" aria-label="Toggle dark/light mode" title="Toggle Theme">☀️</button>
+    </div>
   </nav>
 
   <!-- Register Form -->
@@ -183,5 +186,6 @@
     Auth.redirectIfAuthenticated();
   })();
   </script>
+  <script src="../js/theme.js"></script>
 </body>
 </html>

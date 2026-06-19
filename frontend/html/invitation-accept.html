@@ -20,6 +20,9 @@
     <div class="nav-links">
       <a href="/dashboard" class="nav-pill">Dashboard</a>
     </div>
+      <div class="nav-actions">
+      <button id="themeToggleBtn" class="nav-pill" type="button" aria-label="Toggle dark/light mode" title="Toggle Theme">☀️</button>
+    </div>
   </nav>
 
   <!-- Invitation Acceptance Card -->
@@ -138,5 +141,6 @@
     // be routed through the same RBAC pipeline (REQ-15.1, 15.11).
     if (typeof Router !== 'undefined' && Router.init) { Router.init(); }
   </script>
+  <script src="../js/theme.js"></script>
 </body>
 </html>
