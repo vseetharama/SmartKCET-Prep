@@ -267,6 +267,20 @@ async function initDashboard() {
     studentFilter.closest('.filter-group').style.display = 'none';
   }
 
+  // ── Populate Student Profile Card ──────────────────────────────────────
+  if (userInfo) {
+    const displayName = userInfo.display_name || userInfo.sub || '—';
+    const kcetId = userInfo.kcet_student_id || '—';
+    
+    const studentNameEl = document.getElementById('studentName');
+    const studentIdEl = document.getElementById('studentKcetId');
+    
+    if (studentNameEl) studentNameEl.textContent = displayName;
+    if (studentIdEl) studentIdEl.textContent = kcetId;
+    
+    console.log('[dashboard] Student profile populated:', { displayName, kcetId });
+  }
+
   try {
     // Fetch submissions from API
     const subRes = await fetch('/api/student/submissions', { credentials: 'include' });
