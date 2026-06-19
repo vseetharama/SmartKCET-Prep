@@ -105,7 +105,10 @@
       if (!container) return;
       
       fetch('../html/subscription_modal.html')
-        .then(function(res) { return res.text(); })
+        .then(function(res) { 
+          if (!res.ok) throw new Error('Modal failed to load');
+          return res.text(); 
+        })
         .then(function(html) {
           container.innerHTML = html;
           console.log('[login] Subscription modal injected');
@@ -115,7 +118,8 @@
           }
         })
         .catch(function(err) {
-          console.error('[login] Failed to load subscription modal:', err);
+          // Silently ignore modal load errors - it's optional UI enhancement
+          console.warn('[login] Subscription modal optional feature unavailable:', err.message);
         });
     }
 
