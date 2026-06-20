@@ -335,6 +335,7 @@
       <!-- Action Buttons -->
       <div class="action-buttons">
         <button class="btn-outline" onclick="window.history.back()">Cancel</button>
+        <button class="btn-outline" id="btnDelete" style="color:var(--red-l);border-color:var(--red-l);display:none;">Delete Student</button>
         <button class="btn-primary" id="btnSave">Save Changes</button>
       </div>
 
@@ -519,7 +520,8 @@
     }
 
     function loadStudent(id) {
-      fetch('/api/admin/platform/students?student_type=direct', { credentials: 'include' })
+      // Fetch ALL students (both direct and institution-linked)
+      fetch('/api/admin/platform/students', { credentials: 'include' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data.students) {
@@ -571,6 +573,14 @@
       document.getElementById('subPlan').textContent = currentStudent.plan_name || '—';
       document.getElementById('subRenewal').textContent = fmtDate(currentStudent.next_renewal_date);
 
+      // Show delete button only for direct subscribers
+      var deleteBtn = document.getElementById('btnDelete');
+      if (currentStudent.student_subtype === 'direct_subscriber') {
+        deleteBtn.style.display = 'block';
+      } else {
+        deleteBtn.style.display = 'none';
+      }
+
       // Reset password form
       document.getElementById('resetPasswordSection').style.display = 'none';
       document.getElementById('newPassword').value = '';
@@ -604,6 +614,48 @@
 
       // TODO: Send update request to backend
       alert('Update functionality to be implemented');
+    });
+
+    document.getElementById('btnDelete').addEventListener('click', function() {
+      if (!currentStudent) {
+        alert('No student selected');
+        return;
+      }
+
+      if (currentStudent.student_subtype !== 'direct_subscriber') {
+        alert('Only direct subscriber students can be deleted');
+        return;
+      }
+
+      // Confirm deletion
+      var confirmMsg = 'Are you sure you want to delete this direct subscriber student?\n\n' +
+                       'Student: ' + escapeHtml(currentStudent.name) + '\n' +
+                       'Email: ' + escapeHtml(currentStudent.email) + '\n\n' +
+                       'This action cannot be undone. All associated subscriptions will also be deleted.';
+      
+      if (!confirm(confirmMsg)) {
+        return;
+      }
+
+      // Send delete request
+      fetch('/api/admin/platform/students/' + currentStudent.id, {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+      .then(function(r) {
+        if (r.ok) {
+          alert('✓ Student deleted successfully!');
+          window.location.href = '/admin/students';
+        } else {
+          return r.json().then(function(err) {
+            throw new Error(err.detail || 'Failed to delete student');
+          });
+        }
+      })
+      .catch(function(err) {
+        alert('✗ Error: ' + (err.message || 'Failed to delete student'));
+        console.error('Delete error:', err);
+      });
     });
 
     document.getElementById('btnCreate').addEventListener('click', function() {

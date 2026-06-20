@@ -153,28 +153,23 @@ var InstitutionAccessControl = (function () {
     // Check subscription status
     var status = await _checkSubscriptionStatus();
 
-    // If there's an error, allow access (don't block on network errors)
+    // Log the result
+    console.log('[InstitutionAccessControl] Subscription check result:', status);
+
+    // If there's an error (including 404), log it but DON'T block access
+    // The page can still load and show data, but creation actions will be blocked
     if (status.error) {
-      console.warn('Access control check failed:', status.error);
-      return;
+      console.warn('Access control check returned error:', status.error);
+      // Don't block - just log the error
+      return true;
     }
 
-    // If subscription_status is null, block access
+    // If subscription_status is null, log warning but still allow access
+    // The page will load but actions requiring subscription will be blocked
     if (status.subscription_status === null || status.subscription_status === undefined) {
-      // Show blocking popup
-      _showAccessBlockedPopup(window.location.pathname);
-
-      // Prevent navigation away from the modal (block clicks on page content)
-      document.addEventListener('click', function (e) {
-        // Allow clicks only if they're inside the overlay
-        var overlay = document.getElementById('institutionAccessBlocker');
-        if (overlay && !overlay.contains(e.target)) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      }, true);
-
-      return false;
+      console.warn('No active subscription found');
+      // Still allow page to load - actions will be controlled separately
+      return true;
     }
 
     // If subscription is active, allow access

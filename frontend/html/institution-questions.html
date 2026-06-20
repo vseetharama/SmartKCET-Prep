@@ -311,8 +311,8 @@
           document.getElementById('countTiles').innerHTML = subjects.map(function(s) {
             var count = counts[s] || 0;
             var enough = count >= threshold;
-            var color = enough ? 'var(--green-l)' : count > 0 ? 'var(--yellow-l)' : 'var(--muted)';
-            var hint = enough ? '✅ Enough for exam' : count > 0 ? (threshold - count) + ' more needed' : 'Upload papers';
+            var color = enough ? 'var(--green-l)' : count > 0 ? 'var(--muted)' : 'var(--muted)';
+            var hint = 'Recommended: 80 questions for full exam';
             return '<div style="background:var(--s2);border:1px solid var(--border);border-radius:var(--rm);padding:16px;text-align:center;">' +
               '<div style="font-size:0.82rem;color:var(--muted);margin-bottom:4px;">' + s + '</div>' +
               '<div style="font-size:1.6rem;font-weight:700;color:' + color + ';">' + count + '</div>' +

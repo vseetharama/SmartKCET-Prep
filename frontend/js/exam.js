@@ -286,8 +286,68 @@ function renderPreviousResult(submission) {
     ? `${Math.floor(submission.time_taken_sec / 60)}m ${submission.time_taken_sec % 60}s`
     : '—';
 
+  // Build answer review HTML
+  const questionResults = submission.topic_breakdown ? [] : [];
+  let reviewHTML = '';
+  
+  // If we have question_results data from the submission
+  if (submission.questionResults && Array.isArray(submission.questionResults)) {
+    reviewHTML = `
+      <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px;">
+        <h3 style="margin:0 0 12px;font-size:0.95rem;color:var(--text);">Answer Review</h3>
+        ${submission.questionResults.map((q, idx) => {
+          const isCorrect = q.status === 'correct';
+          const statusColor = isCorrect ? 'var(--green-l)' : q.status === 'unanswered' ? 'var(--yellow-l)' : 'var(--red-l)';
+          const statusIcon = isCorrect ? '✓' : q.status === 'unanswered' ? '?' : '✗';
+          const optionLetters = ['A', 'B', 'C', 'D'];
+          const givenLetter = q.given !== undefined && q.given !== '' && q.given !== null 
+            ? (isNaN(q.given) ? q.given : optionLetters[parseInt(q.given)] || '—')
+            : '—';
+          const correctLetter = q.correctAns !== undefined && q.correctAns !== null
+            ? (isNaN(q.correctAns) ? q.correctAns : optionLetters[parseInt(q.correctAns)] || '—')
+            : '—';
+          
+          return `
+            <div style="margin-bottom:12px;padding:12px;background:var(--s2);border-radius:8px;border-left:3px solid ${statusColor};">
+              <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
+                <div style="flex:1;">
+                  <div style="font-weight:600;font-size:0.9rem;color:var(--text);">Q${idx + 1}. ${q.q ? q.q.substring(0, 100) : 'Question'}</div>
+                  <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;"><strong>Topic:</strong> ${q.topic || 'General'}</div>
+                </div>
+                <div style="font-weight:700;color:${statusColor};font-size:1.2rem;margin-left:8px;">${statusIcon}</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.85rem;">
+                <div style="background:var(--card-bg);padding:8px;border-radius:4px;">
+                  <div style="color:var(--muted);font-size:0.75rem;margin-bottom:2px;">Your Answer:</div>
+                  <div style="font-weight:600;color:${q.given === '' ? 'var(--muted)' : q.status === 'correct' ? 'var(--green-l)' : 'var(--red-l)'};">
+                    ${givenLetter}
+                  </div>
+                </div>
+                ${!isCorrect ? `
+                <div style="background:rgba(5,150,105,0.1);padding:8px;border-radius:4px;border:1px solid rgba(5,150,105,0.3);">
+                  <div style="color:var(--muted);font-size:0.75rem;margin-bottom:2px;">Correct Answer:</div>
+                  <div style="font-weight:600;color:var(--green-l);">${correctLetter}</div>
+                </div>
+                ` : ''}
+              </div>
+              ${q.earned !== q.marks ? `
+              <div style="margin-top:8px;font-size:0.8rem;color:var(--red-l);">
+                Marks: <strong>${q.earned}/${q.marks}</strong>
+              </div>
+              ` : `
+              <div style="margin-top:8px;font-size:0.8rem;color:var(--green-l);">
+                Marks: <strong>${q.earned}/${q.marks}</strong>
+              </div>
+              `}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
   resultDiv.innerHTML = `
-    <div class="entry-modal" style="max-width:500px;text-align:center;">
+    <div class="entry-modal" style="max-width:700px;text-align:center;">
       <div class="entry-icon">📋</div>
       <h2>Already Completed</h2>
       <p style="color:var(--muted);margin-bottom:1.5rem;">You have already completed this exam set.</p>
@@ -305,7 +365,8 @@ function renderPreviousResult(submission) {
           <span>Submitted:</span><span>${submittedAt}</span>
         </div>
       </div>
-      <div style="display:flex;gap:12px;justify-content:center;">
+      ${reviewHTML}
+      <div style="display:flex;gap:12px;justify-content:center;margin-top:16px;">
         <a href="${dashboardUrl()}" class="btn-generate" style="text-decoration:none;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3"/></svg>
           Go to Dashboard
@@ -1182,9 +1243,12 @@ window.submitPaper = async () => {
   // Build the answers map with string keys matching question indices
   const answersMap = {};
   for (const [key, value] of Object.entries(ES.answers)) {
-    // Convert MCQ numeric index to letter (A, B, C, D) for the backend
+    // Keep MCQ answer as numeric string ("0", "1", "2", "3")
+    // to match backend scoring expectations
     if (typeof value === 'number') {
-      answersMap[String(key)] = ['A', 'B', 'C', 'D'][value] || String(value);
+      answersMap[String(key)] = String(value);
+    } else if (value === '') {
+      answersMap[String(key)] = '';  // Unanswered
     } else {
       answersMap[String(key)] = String(value);
     }

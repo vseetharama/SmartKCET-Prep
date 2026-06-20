@@ -149,12 +149,12 @@
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No exam history yet</td></tr>';
         return;
       }
-      tbody.innerHTML = subs.map(function(s) {
+      tbody.innerHTML = subs.map(function(s, idx) {
         var p = Math.round(s.score_pct);
         var cls = p >= 70 ? 'score-high' : p >= 40 ? 'score-mid' : 'score-low';
         var m = Math.floor(s.time_taken_sec / 60), sec = s.time_taken_sec % 60;
         var date = s.submitted_at ? new Date(s.submitted_at).toLocaleDateString() : '—';
-        return '<tr>' +
+        return '<tr style="cursor:pointer;" onclick="showSubmissionReview(' + idx + ')">' +
           '<td style="font-weight:600;color:var(--purple-l)">' + esc(s.subject || '—') + '</td>' +
           '<td>' + esc(s.set_label || '—') + '</td>' +
           '<td><span class="score-badge ' + cls + '">' + p + '%</span></td>' +
@@ -163,7 +163,133 @@
           '<td style="color:var(--muted2)">' + date + '</td>' +
           '</tr>';
       }).join('');
+
+      // Store submissions for modal access
+      window.SUBMISSIONS_DATA = subs;
     });
+  </script>
+  <script>
+    // Show detailed submission review modal
+    window.showSubmissionReview = function(idx) {
+      var submission = window.SUBMISSIONS_DATA[idx];
+      if (!submission) return;
+
+      var overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(8px);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        overflow-y: auto;
+      `;
+
+      var p = Math.round(submission.score_pct);
+      var passStatus = submission.pass_flag ? '✅ Passed' : '❌ Failed';
+      var m = Math.floor(submission.time_taken_sec / 60), sec = submission.time_taken_sec % 60;
+      
+      var reviewHTML = '';
+      if (submission.questionResults && Array.isArray(submission.questionResults)) {
+        reviewHTML = submission.questionResults.map(function(q, qIdx) {
+          var isCorrect = q.status === 'correct';
+          var statusColor = isCorrect ? '#06a44d' : q.status === 'unanswered' ? '#f59e0b' : '#ef4444';
+          var statusIcon = isCorrect ? '✓' : q.status === 'unanswered' ? '?' : '✗';
+          var optionLetters = ['A', 'B', 'C', 'D'];
+          var givenLetter = q.given !== undefined && q.given !== '' && q.given !== null 
+            ? (isNaN(q.given) ? q.given : optionLetters[parseInt(q.given)] || '—')
+            : '—';
+          var correctLetter = q.correctAns !== undefined && q.correctAns !== null
+            ? (isNaN(q.correctAns) ? q.correctAns : optionLetters[parseInt(q.correctAns)] || '—')
+            : '—';
+          
+          return `
+            <div style="margin-bottom:12px;padding:12px;background:var(--s2);border-radius:8px;border-left:3px solid ${statusColor};">
+              <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
+                <div style="flex:1;">
+                  <div style="font-weight:600;font-size:0.9rem;color:var(--text);">Q${qIdx + 1}. ${(q.q || '').substring(0, 100)}</div>
+                  <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;"><strong>Topic:</strong> ${q.topic || 'General'}</div>
+                </div>
+                <div style="font-weight:700;color:${statusColor};font-size:1.2rem;margin-left:8px;">${statusIcon}</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.85rem;">
+                <div style="background:var(--card-bg);padding:8px;border-radius:4px;">
+                  <div style="color:var(--muted);font-size:0.75rem;margin-bottom:2px;">Your Answer:</div>
+                  <div style="font-weight:600;color:${q.given === '' ? 'var(--muted)' : q.status === 'correct' ? '#06a44d' : '#ef4444'};">
+                    ${givenLetter}
+                  </div>
+                </div>
+                ${!isCorrect ? `
+                <div style="background:rgba(5,150,105,0.1);padding:8px;border-radius:4px;border:1px solid rgba(5,150,105,0.3);">
+                  <div style="color:var(--muted);font-size:0.75rem;margin-bottom:2px;">Correct Answer:</div>
+                  <div style="font-weight:600;color:#06a44d;">${correctLetter}</div>
+                </div>
+                ` : ''}
+              </div>
+              <div style="margin-top:8px;font-size:0.8rem;color:${q.earned === q.marks ? '#06a44d' : '#ef4444'};">
+                Marks: <strong>${q.earned}/${q.marks}</strong>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } else {
+        reviewHTML = '<p style="color:var(--muted);text-align:center;padding:20px;">Detailed answer review not available for this submission.</p>';
+      }
+
+      var dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: var(--s1);
+        border: 1px solid var(--border2);
+        border-radius: 14px;
+        padding: 24px;
+        max-width: 700px;
+        width: 100%;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+        max-height: 90vh;
+        overflow-y: auto;
+      `;
+      
+      dialog.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <h2 style="margin:0;font-size:1.3rem;color:var(--text);">Exam Review</h2>
+          <button onclick="this.closest('[style*=z-index]').remove()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--muted);">✕</button>
+        </div>
+        
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
+          <div style="padding:12px;background:var(--card-bg);border-radius:8px;text-align:center;">
+            <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;">Subject</div>
+            <div style="font-weight:700;color:var(--purple-l);">${esc(submission.subject || '—')}</div>
+          </div>
+          <div style="padding:12px;background:var(--card-bg);border-radius:8px;text-align:center;">
+            <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;">Score</div>
+            <div style="font-weight:700;font-size:1.2rem;color:#06a44d;">${p}%</div>
+          </div>
+          <div style="padding:12px;background:var(--card-bg);border-radius:8px;text-align:center;">
+            <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;">Status</div>
+            <div style="font-weight:700;color:${submission.pass_flag ? '#06a44d' : '#ef4444'};">${passStatus}</div>
+          </div>
+          <div style="padding:12px;background:var(--card-bg);border-radius:8px;text-align:center;">
+            <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;">Time</div>
+            <div style="font-weight:700;">${m}m ${sec}s</div>
+          </div>
+        </div>
+
+        <div style="border-top:1px solid var(--border);padding-top:16px;">
+          <h3 style="margin:0 0 12px;font-size:0.95rem;color:var(--text);">Answer Review</h3>
+          ${reviewHTML}
+        </div>
+      `;
+
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) overlay.remove();
+      });
+    };
   </script>
   <script src="../js/theme.js"></script>
 </body>

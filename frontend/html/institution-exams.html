@@ -71,7 +71,7 @@
         </div>
         <div>
           <h2>Create Institution Exam</h2>
-          <p class="section-sub">Generate an exam from your institution's question bank (4 sets × 20 questions = 80 questions required)</p>
+          <p class="section-sub">Generate an exam from your institution's question bank (4 sets with questions distributed evenly)</p>
         </div>
       </div>
       <div class="section-body">
@@ -107,7 +107,7 @@
         </div>
         <div>
           <h2>Question Bank Status</h2>
-          <p class="section-sub">Questions available in your institution's bank (need 80 per subject for exam creation)</p>
+          <p class="section-sub">Questions available in your institution's bank (can create exams with 1 or more questions)</p>
         </div>
       </div>
       <div class="section-body">
@@ -138,6 +138,7 @@
                 <th>Created</th>
                 <th>Sets</th>
                 <th>Status</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody id="examsTableBody">
@@ -308,16 +309,24 @@
     function loadQuestionBankStatus() {
       var container = document.getElementById('questionBankStatus');
       fetch('/api/institution/content/questions/counts', { credentials: 'include' })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+          console.log('[loadQuestionBankStatus] Response status:', r.status);
+          if (!r.ok) {
+            console.error('Failed to load question counts: HTTP ' + r.status);
+            throw new Error('HTTP ' + r.status);
+          }
+          return r.json();
+        })
         .then(function(data) {
+          console.log('[loadQuestionBankStatus] Data received:', data);
           var counts = data.counts || {};
           var threshold = data.threshold || 80;
           var subjects = ['Biology', 'Physics', 'Chemistry', 'Mathematics'];
           container.innerHTML = subjects.map(function(s) {
             var count = counts[s] || 0;
             var enough = count >= threshold;
-            var color = enough ? 'var(--green-l)' : count > 0 ? 'var(--yellow-l)' : 'var(--muted)';
-            var hint = enough ? '✅ Ready for exam' : count > 0 ? (threshold - count) + ' more needed' : 'No questions yet';
+            var color = enough ? 'var(--green-l)' : count > 0 ? 'var(--muted)' : 'var(--muted)';
+            var hint = 'Recommended: 80 questions for full exam';
             return '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:var(--rm);padding:16px;text-align:center;">' +
               '<div style="font-size:0.85rem;color:var(--muted);margin-bottom:4px;">' + s + '</div>' +
               '<div style="font-size:1.5rem;font-weight:700;color:' + color + ';">' + count + '</div>' +
@@ -325,7 +334,8 @@
             '</div>';
           }).join('');
         })
-        .catch(function() {
+        .catch(function(err) {
+          console.error('[loadQuestionBankStatus] Error:', err);
           var subjects = ['Biology', 'Physics', 'Chemistry', 'Mathematics'];
           container.innerHTML = subjects.map(function(s) {
             return '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:var(--rm);padding:16px;text-align:center;">' +
@@ -340,12 +350,21 @@
     // ── Load exams ───────────────────────────────────────────────────────
     function loadExams() {
       fetch('/api/institution/content/exams', { credentials: 'include' })
-        .then(function (res) { return res.json(); })
+        .then(function (res) {
+          console.log('[loadExams] Response status:', res.status);
+          if (!res.ok) {
+            console.error('Failed to load exams: HTTP ' + res.status);
+            throw new Error('HTTP ' + res.status);
+          }
+          return res.json();
+        })
         .then(function (data) {
+          console.log('[loadExams] Data received:', data);
           exams = data.exams || [];
           renderExams();
         })
-        .catch(function () {
+        .catch(function (err) {
+          console.error('[loadExams] Error:', err);
           document.getElementById('examsTableBody').innerHTML =
             '<tr><td colspan="5" style="text-align:center;color:var(--red-l);padding:32px;">Failed to load exams</td></tr>';
         });
@@ -369,6 +388,9 @@
         var createdDate = exam.created_at ? new Date(exam.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
         var statusClass = exam.is_published ? 'score-high' : '';
         var statusText = exam.is_published ? 'Published' : 'Draft';
+        var actionBtn = exam.is_published 
+          ? '<button class="btn-outline" style="padding:6px 12px;font-size:0.75rem;color:var(--red-l);border-color:var(--red-l);" onclick="unpublishExam(\'' + exam.exam_id + '\', \'' + escapeHtml(examName) + '\')">Unpublish</button>'
+          : '<button class="btn-primary" style="padding:6px 12px;font-size:0.75rem;" onclick="publishExam(\'' + exam.exam_id + '\', \'' + escapeHtml(examName) + '\')">Publish</button>';
 
         return '<tr>' +
           '<td>' + escapeHtml(examName) + '</td>' +
@@ -376,6 +398,7 @@
           '<td>' + createdDate + '</td>' +
           '<td>' + (exam.set_count || 4) + ' sets</td>' +
           '<td><span class="score-badge ' + statusClass + '">' + statusText + '</span></td>' +
+          '<td>' + actionBtn + '</td>' +
           '</tr>';
       }).join('');
     }
@@ -431,6 +454,7 @@
             showMessage(msgEl, 'Network error. Please try again.', 'error');
           });
       });
+    });
 
     // ── Helpers ──────────────────────────────────────────────────────────
     function showMessage(el, text, type) {
@@ -461,6 +485,168 @@
       div.appendChild(document.createTextNode(str || ''));
       return div.innerHTML;
     }
+
+    // ── Publish exam ─────────────────────────────────────────────────────
+    window.publishExam = function(examId, examName) {
+      // Show confirmation dialog
+      var overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(8px);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      `;
+
+      var dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: var(--s1);
+        border: 1px solid var(--border2);
+        border-radius: 14px;
+        padding: 36px;
+        max-width: 480px;
+        width: 100%;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      `;
+      dialog.innerHTML = `
+        <div style="text-align: center; margin-bottom: 28px;">
+          <div style="font-size: 2.4rem; margin-bottom: 12px;">📤</div>
+          <h2 style="font-size: 1.2rem; font-weight: 800; margin: 0 0 6px; color: var(--text);">Publish Exam?</h2>
+          <p style="color: var(--muted); font-size: 0.88rem; margin: 0;">Publishing "<strong>` + escapeHtml(examName) + `</strong>" will make it available to all your institution students.</p>
+        </div>
+        <div style="display: flex; gap: 12px;">
+          <button id="cancelPublishBtn" style="flex:1;padding:10px 18px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.88rem;font-weight:600;cursor:pointer;">Cancel</button>
+          <button id="confirmPublishBtn" style="flex:1;padding:10px 18px;background:linear-gradient(135deg,var(--inst-accent),var(--inst-accent-dark));border:none;border-radius:8px;color:white;font-size:0.88rem;font-weight:600;cursor:pointer;">Publish</button>
+        </div>
+      `;
+
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      document.getElementById('cancelPublishBtn').addEventListener('click', function() {
+        overlay.remove();
+      });
+
+      document.getElementById('confirmPublishBtn').addEventListener('click', async function() {
+        var confirmBtn = document.getElementById('confirmPublishBtn');
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Publishing…';
+
+        try {
+          var res = await fetch('/api/institution/content/exams/' + examId + '?is_published=true', {
+            method: 'PATCH',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+          });
+
+          var data = await res.json();
+
+          if (!res.ok) {
+            var msg = (data && data.message) || (data && data.detail && data.detail.message) || 'Failed to publish exam';
+            showMessage(document.getElementById('createMessage'), msg, 'error');
+          } else {
+            showMessage(document.getElementById('createMessage'), '✅ Exam published successfully!', 'success');
+            loadExams();
+          }
+        } catch (err) {
+          showMessage(document.getElementById('createMessage'), '❌ Network error. Please try again.', 'error');
+        }
+
+        overlay.remove();
+      });
+
+      // Close on overlay click
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) {
+          overlay.remove();
+        }
+      });
+    };
+
+    // ── Unpublish exam ───────────────────────────────────────────────────
+    window.unpublishExam = function(examId, examName) {
+      // Show confirmation dialog
+      var overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(8px);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      `;
+
+      var dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: var(--s1);
+        border: 1px solid var(--border2);
+        border-radius: 14px;
+        padding: 36px;
+        max-width: 480px;
+        width: 100%;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      `;
+      dialog.innerHTML = `
+        <div style="text-align: center; margin-bottom: 28px;">
+          <div style="font-size: 2.4rem; margin-bottom: 12px;">📥</div>
+          <h2 style="font-size: 1.2rem; font-weight: 800; margin: 0 0 6px; color: var(--text);">Unpublish Exam?</h2>
+          <p style="color: var(--muted); font-size: 0.88rem; margin: 0;">Unpublishing "<strong>` + escapeHtml(examName) + `</strong>" will hide it from students. They won't be able to start new attempts.</p>
+        </div>
+        <div style="display: flex; gap: 12px;">
+          <button id="cancelUnpublishBtn" style="flex:1;padding:10px 18px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.88rem;font-weight:600;cursor:pointer;">Cancel</button>
+          <button id="confirmUnpublishBtn" style="flex:1;padding:10px 18px;background:rgba(220,38,38,0.2);border:1px solid rgba(220,38,38,0.5);border-radius:8px;color:var(--red-l);font-size:0.88rem;font-weight:600;cursor:pointer;">Unpublish</button>
+        </div>
+      `;
+
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      document.getElementById('cancelUnpublishBtn').addEventListener('click', function() {
+        overlay.remove();
+      });
+
+      document.getElementById('confirmUnpublishBtn').addEventListener('click', async function() {
+        var confirmBtn = document.getElementById('confirmUnpublishBtn');
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Unpublishing…';
+
+        try {
+          var res = await fetch('/api/institution/content/exams/' + examId + '?is_published=false', {
+            method: 'PATCH',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+          });
+
+          var data = await res.json();
+
+          if (!res.ok) {
+            var msg = (data && data.message) || (data && data.detail && data.detail.message) || 'Failed to unpublish exam';
+            showMessage(document.getElementById('createMessage'), msg, 'error');
+          } else {
+            showMessage(document.getElementById('createMessage'), '✅ Exam unpublished successfully!', 'success');
+            loadExams();
+          }
+        } catch (err) {
+          showMessage(document.getElementById('createMessage'), '❌ Network error. Please try again.', 'error');
+        }
+
+        overlay.remove();
+      });
+
+      // Close on overlay click
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) {
+          overlay.remove();
+        }
+      });
+    };
 
     // ── Init ─────────────────────────────────────────────────────────────
     loadQuestionBankStatus();

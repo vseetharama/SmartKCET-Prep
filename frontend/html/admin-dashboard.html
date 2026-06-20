@@ -394,13 +394,15 @@
     </div>
 
     <!-- ── Direct Subscriber Students ───────────────────────────────────── -->
-    <div class="section-card" style="margin-top:20px;">
+    <a href="/admin/students" style="text-decoration:none;cursor:pointer;display:block;">
+    <div class="section-card" style="margin-top:20px;cursor:pointer;transition:border-color 0.15s, transform 0.15s, box-shadow 0.15s;" onmouseover="this.style.borderColor='rgba(255,255,255,0.18)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.25)';" onmouseout="this.style.borderColor='var(--border)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 0px 0px rgba(0,0,0,0)';">
       <div class="section-card-header">
         <div class="section-nav">
           <div>
             <h3 style="margin:0;font-size:1rem;">Direct Subscriber Students</h3>
             <p class="section-sub" style="margin:0;">Personal/independent students</p>
           </div>
+          <span class="view-all-link" style="pointer-events:none;">View All →</span>
         </div>
       </div>
       <div class="section-body" style="padding:0;">
@@ -421,6 +423,7 @@
         <div class="table-footer" id="directSubFooter" style="text-align:center;padding:8px;font-size:0.8rem;color:var(--muted);">—</div>
       </div>
     </div>
+    </a>
 
   </div><!-- /main-wrap -->
 
