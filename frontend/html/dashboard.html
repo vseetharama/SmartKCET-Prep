@@ -79,7 +79,7 @@
           Refresh
         </button>
       </div>
-    </div>
+    </div><!-- End dash-hero -->
 
     <!-- Student Profile Card -->
     <div class="section-card" style="margin-bottom:20px;padding:16px;">
@@ -114,12 +114,6 @@
       <!-- Filters -->
       <div class="dash-filters section-card">
         <div class="filter-row">
-          <div class="filter-group" style="display:none">
-            <label class="input-label">Student</label>
-            <select id="filterStudent" class="select-input" onchange="applyFilters()">
-              <option value="all">All Students</option>
-            </select>
-          </div>
           <div class="filter-group">
             <label class="input-label">Subject</label>
             <select id="filterSubject" class="select-input" onchange="applyFilters()">
@@ -155,7 +149,6 @@
             <div class="kpi-tile-val" id="kpiStudents">0</div>
             <div class="kpi-tile-label">Exams Taken</div>
           </div>
-          <div class="kpi-tile-trend up" id="kpiStudentsTrend"></div>
         </div>
         <div class="kpi-tile">
           <div class="kpi-tile-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
@@ -163,7 +156,6 @@
             <div class="kpi-tile-val" id="kpiSubmissions">0</div>
             <div class="kpi-tile-label">Submissions</div>
           </div>
-          <div class="kpi-tile-trend" id="kpiSubTrend"></div>
         </div>
         <div class="kpi-tile">
           <div class="kpi-tile-icon cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg></div>
@@ -171,7 +163,6 @@
             <div class="kpi-tile-val" id="kpiAvgScore">0%</div>
             <div class="kpi-tile-label">Avg Score</div>
           </div>
-          <div class="kpi-tile-trend" id="kpiScoreTrend"></div>
         </div>
         <div class="kpi-tile">
           <div class="kpi-tile-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
@@ -179,7 +170,6 @@
             <div class="kpi-tile-val" id="kpiPassRate">0%</div>
             <div class="kpi-tile-label">Pass Rate</div>
           </div>
-          <div class="kpi-tile-trend" id="kpiPassTrend"></div>
         </div>
         <div class="kpi-tile">
           <div class="kpi-tile-icon orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
@@ -187,37 +177,43 @@
             <div class="kpi-tile-val" id="kpiAvgTime">0m</div>
             <div class="kpi-tile-label">Avg Time</div>
           </div>
-          <div class="kpi-tile-trend" id="kpiTimeTrend"></div>
         </div>
         <div class="kpi-tile">
           <div class="kpi-tile-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15l-3 3h6l-3-3z"/><path d="M5 9l7-7 7 7"/><path d="M4 19h16"/></svg></div>
           <div class="kpi-tile-body">
             <div class="kpi-tile-val" id="kpiRankValue">—</div>
             <div class="kpi-tile-label">Your Rank</div>
-            <div class="kpi-tile-hint" id="kpiRankHint" style="font-size:0.65rem;color:var(--muted);margin-top:2px;line-height:1.2">score at least 30% on average to enter the leaderboard</div>
           </div>
         </div>
       </div>
 
-      <!-- Charts Row 1 -->
-      <div class="charts-row">
-        <div class="chart-card section-card wide">
+      <!-- Charts Section -->
+      <div class="charts-section">
+        <!-- Topic Performance Full Width -->
+        <div class="chart-card section-card" style="margin-bottom:24px">
           <div class="chart-card-header">
-            <h3>Topic Performance</h3>
+            <h3>📊 Topic Performance</h3>
+            <p style="font-size:0.75rem;color:var(--muted);margin-top:2px">Your performance across different topics</p>
           </div>
-          <div class="chart-wrap"><canvas id="topicChart"></canvas></div>
+          <div class="chart-wrap topic-radar"><canvas id="topicChart"></canvas></div>
         </div>
-      </div>
 
-      <!-- Charts Row 2 -->
-      <div class="charts-row" style="margin-top:20px">
-        <div class="chart-card section-card">
-          <div class="chart-card-header"><h3>Set-wise Avg Score</h3></div>
-          <div class="chart-wrap"><canvas id="setChart"></canvas></div>
-        </div>
-        <div class="chart-card section-card">
-          <div class="chart-card-header"><h3>Pass vs Fail</h3></div>
-          <div class="chart-wrap"><canvas id="passChart"></canvas></div>
+        <!-- Charts Grid Row 1 -->
+        <div class="charts-grid-2">
+          <div class="chart-card section-card">
+            <div class="chart-card-header">
+              <h3>📈 Set-wise Avg Score</h3>
+              <p style="font-size:0.75rem;color:var(--muted);margin-top:2px">Performance by exam set</p>
+            </div>
+            <div class="chart-wrap"><canvas id="setChart"></canvas></div>
+          </div>
+          <div class="chart-card section-card">
+            <div class="chart-card-header">
+              <h3>✓ Pass vs Fail</h3>
+              <p style="font-size:0.75rem;color:var(--muted);margin-top:2px">Your exam status distribution</p>
+            </div>
+            <div class="chart-wrap"><canvas id="passChart"></canvas></div>
+          </div>
         </div>
       </div>
 

@@ -575,9 +575,35 @@ function renderCharts() {
     type: 'radar',
     data: {
       labels: tLabels,
-      datasets: [{ label: 'Avg %', data: tData, backgroundColor: 'rgba(124,58,237,0.15)', borderColor: '#a855f7', pointBackgroundColor: '#a855f7', borderWidth: 2, pointRadius: 4 }]
+      datasets: [{ label: 'Avg %', data: tData, backgroundColor: 'rgba(124,58,237,0.15)', borderColor: '#a855f7', pointBackgroundColor: '#a855f7', borderWidth: 2.5, pointRadius: 5, pointHoverRadius: 7 }]
     },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: CHART_DEFAULTS.color } } }, scales: { r: { grid: { color: CHART_DEFAULTS.grid }, ticks: { color: CHART_DEFAULTS.muted, backdropColor: 'transparent', font: { size: 9 } }, pointLabels: { color: CHART_DEFAULTS.color, font: { size: 10 } }, min: 0, max: 100 } } }
+    options: { 
+      responsive: true, 
+      maintainAspectRatio: false, 
+      plugins: { 
+        legend: { 
+          labels: { color: CHART_DEFAULTS.color, font: { size: 13, weight: 600 }, padding: 16 } 
+        } 
+      }, 
+      scales: { 
+        r: { 
+          grid: { color: CHART_DEFAULTS.grid, lineWidth: 1.2 }, 
+          ticks: { 
+            color: CHART_DEFAULTS.muted, 
+            backdropColor: 'transparent', 
+            font: { size: 13, weight: 500 },
+            padding: 8
+          }, 
+          pointLabels: { 
+            color: CHART_DEFAULTS.color, 
+            font: { size: 14, weight: 600 },
+            padding: 12
+          }, 
+          min: 0, 
+          max: 100 
+        } 
+      } 
+    }
   });
 
   // Set-wise bar chart
