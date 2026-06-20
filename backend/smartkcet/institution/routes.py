@@ -1167,7 +1167,8 @@ async def get_institution_student_performance(
     if not user:
         raise HTTPException(status_code=401, detail={"error": "user_not_found"})
 
-    from ..db.models import Exam, ExamSet, Submission
+    from ..db.models import Exam, ExamSet, Submission, ExamSetQuestion, Question
+    from ..submissions.scoring import score_submission
 
     rows = (
         db.query(Submission, ExamSet, Exam)
@@ -1179,8 +1180,9 @@ async def get_institution_student_performance(
         .all()
     )
 
-    submissions = [
-        {
+    submissions = []
+    for s, es, ex in rows:
+        submission_dict = {
             "id": str(s.id),
             "subject": ex.subject,
             "set_label": es.set_label,
@@ -1189,8 +1191,46 @@ async def get_institution_student_performance(
             "time_taken_sec": s.time_taken_sec,
             "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
         }
-        for s, es, ex in rows
-    ]
+        
+        # Reconstruct question results from stored answers
+        try:
+            # Fetch questions in order from the exam set
+            exam_questions = (
+                db.query(Question, ExamSetQuestion)
+                .join(ExamSetQuestion, ExamSetQuestion.question_id == Question.id)
+                .filter(ExamSetQuestion.exam_set_id == es.id)
+                .order_by(ExamSetQuestion.order_index.asc())
+                .all()
+            )
+            
+            if exam_questions:
+                # Build question list with metadata needed by score_submission
+                questions_list = [
+                    {
+                        "q": q.question_text,
+                        "opts": q.options,
+                        "ans": int(q.correct_option) if q.correct_option.isdigit() else q.correct_option,
+                        "topic": q.topic or "General",
+                        "marks": 1,  # Default mark per question
+                    }
+                    for q, _ in exam_questions
+                ]
+                
+                # Get the scoring result which includes questionResults
+                scoring_result = score_submission(questions_list, s.answers or {})
+                
+                # Extract just the questionResults array
+                if scoring_result and "questionResults" in scoring_result:
+                    submission_dict["questionResults"] = scoring_result["questionResults"]
+        except Exception as e:
+            # Log error but don't fail the entire endpoint
+            import logging
+            logging.getLogger("smartkcet.institution").warning(
+                "Failed to reconstruct question results for submission %s: %s",
+                s.id, str(e)
+            )
+        
+        submissions.append(submission_dict)
 
     total = len(submissions)
     avg_score = round(sum(s["score_pct"] for s in submissions) / total, 1) if total else 0

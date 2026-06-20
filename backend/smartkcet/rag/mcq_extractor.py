@@ -345,8 +345,15 @@ def extract_or_generate_mcqs(
 
     Returns a combined list of question dicts.
     """
+    logger.info("Starting MCQ extraction from text (%d chars)", len(text) if text else 0)
+    
     # Try structured extraction first
-    extracted = extract_mcqs_from_text(text, topic=topic)
+    try:
+        extracted = extract_mcqs_from_text(text, topic=topic)
+        logger.info("Pattern-based extraction found %d MCQs", len(extracted))
+    except Exception as e:
+        logger.error("Pattern-based extraction failed: %s", e, exc_info=True)
+        extracted = []
 
     if len(extracted) >= min_questions:
         logger.info(
@@ -364,10 +371,17 @@ def extract_or_generate_mcqs(
         min_questions,
         needed,
     )
-    fallback = generate_fallback_mcqs(text, topic=topic, max_questions=needed)
+    try:
+        fallback = generate_fallback_mcqs(text, topic=topic, max_questions=needed)
+        logger.info("Fallback generation produced %d MCQs", len(fallback))
+    except Exception as e:
+        logger.error("Fallback generation failed: %s", e, exc_info=True)
+        fallback = []
 
     combined = extracted + fallback
     logger.info("Total MCQs after fallback: %d", len(combined))
+    if not combined:
+        logger.warning("No MCQs could be extracted or generated from the text!")
     return combined
 
 

@@ -27,7 +27,7 @@ import random
 import uuid
 from typing import Annotated, Any, List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Path, Query, UploadFile, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 from ..db.models import (
     Exam, ExamSet, ExamSetQuestion, IndexedFile, Question, Subject, Submission, User,
 )
-from ..db.session import get_async_session as get_session
+from ..db.session import get_session
 from ..db.subscription_models import Institution, Subscription, SubscriptionPlan
 from ..middleware.rbac import require_authenticated
 from ..rag.mcq_extractor import extract_or_generate_mcqs
@@ -143,7 +143,8 @@ def _require_feature(
 # Exam creation constants (mirrors admin: 4 sets × 20 = 80)
 SET_LABELS = ("A", "B", "C", "D")
 QUESTIONS_PER_SET = 20
-QUESTIONS_PER_EXAM = QUESTIONS_PER_SET * len(SET_LABELS)  # 80
+MAX_QUESTIONS_PER_EXAM = QUESTIONS_PER_SET * len(SET_LABELS)  # 80
+MIN_QUESTIONS_TO_GENERATE = 1
 
 
 # ---------------------------------------------------------------------------
@@ -256,34 +257,54 @@ def _store_mcqs_in_db(
     subject: str,
     batch_id: uuid.UUID,
     institution_id: uuid.UUID,
-) -> int:
+) -> tuple[int, int, Optional[str]]:
+    """Store extracted MCQs as institution-scoped Question rows.
+
+    Returns a tuple of (stored, skipped, error):
+    - stored: number of questions successfully stored and committed
+    - skipped: number of questions skipped due to validation errors
+    - error: None on success, or error message string if commit failed
+    """
     stored = 0
+    skipped = 0
     for mcq in mcqs:
         q_text = mcq.get("q", "").strip()
         opts = mcq.get("opts", [])
         ans = mcq.get("ans", 0)
         topic = mcq.get("topic", "General")
         if not q_text or not isinstance(opts, list) or len(opts) != 4:
+            skipped += 1
             continue
-        row = Question(
-            subject=subject,
-            question_text=q_text,
-            options=opts,
-            correct_option=str(ans),
-            topic=topic if isinstance(topic, str) else "General",
-            generation_batch_id=batch_id,
-            institution_id=institution_id,
-        )
-        db.add(row)
-        stored += 1
+        try:
+            row = Question(
+                subject=subject,
+                question_text=q_text,
+                options=opts,
+                correct_option=str(ans),
+                topic=topic if isinstance(topic, str) else "General",
+                generation_batch_id=batch_id,
+                institution_id=institution_id,
+            )
+            db.add(row)
+            stored += 1
+        except Exception as e:
+            logger.error("Failed to create Question row: %s", e)
+            skipped += 1
+            continue
+    
     if stored > 0:
         try:
+            logger.info("Committing %d questions to database for institution %s", stored, institution_id)
             db.commit()
+            logger.info("Successfully committed %d questions", stored)
+            return stored, skipped, None
         except Exception as exc:
-            logger.warning("Failed to commit MCQs: %s", exc)
+            logger.error("Failed to commit MCQs: %s", exc, exc_info=True)
             db.rollback()
-            return 0
-    return stored
+            error_msg = f"Database commit failed: {type(exc).__name__}: {str(exc)}"
+            return 0, skipped, error_msg
+    
+    return stored, skipped, None
 
 
 def _serialise_question(row: Question) -> dict[str, Any]:
@@ -404,13 +425,26 @@ async def upload_single_file(
 
     mcq_batch_id = uuid.uuid4()
     mcqs = extract_or_generate_mcqs(text, topic=selected.value, min_questions=5)
-    questions_extracted = _store_mcqs_in_db(
+    questions_extracted, questions_skipped, storage_error = _store_mcqs_in_db(
         db, mcqs, selected.value, mcq_batch_id, inst_id
     )
     logger.info(
-        "Institution %s: '%s' → %d chunks, %d MCQs for %s",
-        inst_id, filename, len(chunks), questions_extracted, selected.value,
+        "Institution %s: '%s' → %d chunks, %d MCQs for %s (skipped: %d)",
+        inst_id, filename, len(chunks), questions_extracted, selected.value, questions_skipped,
     )
+    
+    if storage_error:
+        logger.error("Institution %s: Storage error on '%s': %s", inst_id, filename, storage_error)
+        return {
+            "status": "storage_error",
+            "filename": filename,
+            "file_hash": file_hash,
+            "file_size": file_size,
+            "chunk_count": len(chunks),
+            "questions_extracted": questions_extracted,
+            "error": storage_error,
+            "message": f"File indexed with {len(chunks)} chunks but MCQ storage failed: {storage_error}",
+        }
 
     return {
         "status": "indexed",
@@ -461,6 +495,7 @@ async def upload_institution_content(
 
     warnings: List[str] = []
     already_indexed: List[dict] = []
+    file_errors: List[dict[str, Any]] = []
     indexed_files = 0
     total_chunks = 0
     total_questions_extracted = 0
@@ -513,14 +548,35 @@ async def upload_institution_content(
         )
 
         mcq_batch_id = uuid.uuid4()
-        mcqs = extract_or_generate_mcqs(text, topic=selected.value, min_questions=5)
-        questions_extracted = _store_mcqs_in_db(
+        try:
+            mcqs = extract_or_generate_mcqs(text, topic=selected.value, min_questions=5)
+        except Exception as e:
+            logger.error("Institution %s: MCQ extraction failed for '%s': %s", inst_id, filename, e)
+            mcqs = []
+        
+        questions_extracted, questions_skipped, storage_error = _store_mcqs_in_db(
             db, mcqs, selected.value, mcq_batch_id, inst_id
         )
         logger.info(
-            "Institution %s: '%s' → %d chunks, %d MCQs for %s",
-            inst_id, filename, len(chunks), questions_extracted, selected.value,
+            "Institution %s: '%s' → %d chunks, %d MCQs for %s (skipped: %d)",
+            inst_id, filename, len(chunks), questions_extracted, selected.value, questions_skipped,
         )
+        
+        # Track per-file errors
+        if storage_error:
+            logger.error("Institution %s: Storage error on '%s': %s", inst_id, filename, storage_error)
+            file_errors.append({
+                "filename": filename,
+                "file_hash": file_hash,
+                "chunk_count": len(chunks),
+                "attempted_questions": len(mcqs),
+                "stored_questions": questions_extracted,
+                "skipped_questions": questions_skipped,
+                "error_reason": storage_error,
+            })
+            # File was indexed in FAISS but MCQs failed to store — log warning
+            warnings.append(f"{filename}: File indexed but MCQ storage failed - {storage_error}")
+            continue
 
         indexed_files += 1
         total_chunks += len(chunks)
@@ -535,6 +591,7 @@ async def upload_institution_content(
         "questions_extracted": total_questions_extracted,
         "warnings": warnings,
         "already_indexed": already_indexed,
+        "file_errors": file_errors,
     }
 
 
@@ -596,12 +653,12 @@ def get_question_counts(
     """Return per-subject question counts for this institution's bank."""
     inst_id = _institution_id(payload)
     counts = _counts_by_subject(session, inst_id)
-    insufficient = {s: c < QUESTIONS_PER_EXAM for s, c in counts.items()}
+    insufficient = {s: c < MAX_QUESTIONS_PER_EXAM for s, c in counts.items()}
     return {
         "institution_id": str(inst_id),
         "counts": counts,
         "insufficient": insufficient,
-        "threshold": QUESTIONS_PER_EXAM,
+        "threshold": MAX_QUESTIONS_PER_EXAM,
     }
 
 
@@ -734,18 +791,17 @@ def create_institution_exam(
         )
     ).scalar_one())
 
-    if available < QUESTIONS_PER_EXAM:
+    if available < MIN_QUESTIONS_TO_GENERATE:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={
                 "error": "insufficient_questions",
                 "subject": selected.value,
                 "count": available,
-                "required": QUESTIONS_PER_EXAM,
+                "required": MIN_QUESTIONS_TO_GENERATE,
                 "message": (
                     f"Not enough questions in institution's {selected.value} bank. "
-                    f"Found {available}, need at least {QUESTIONS_PER_EXAM}. "
-                    f"Please upload more question papers first."
+                    f"Found {available}, need at least {MIN_QUESTIONS_TO_GENERATE}."
                 ),
             },
         )
@@ -758,22 +814,41 @@ def create_institution_exam(
     ).all()
     all_ids: list[uuid.UUID] = [row[0] for row in id_rows]
 
-    if len(all_ids) < QUESTIONS_PER_EXAM:
+    if len(all_ids) < MIN_QUESTIONS_TO_GENERATE:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={
                 "error": "insufficient_questions",
                 "subject": selected.value,
                 "count": len(all_ids),
-                "required": QUESTIONS_PER_EXAM,
+                "required": MIN_QUESTIONS_TO_GENERATE,
             },
         )
 
-    drawn = random.sample(all_ids, QUESTIONS_PER_EXAM)
-    partitions = [
-        drawn[i * QUESTIONS_PER_SET : (i + 1) * QUESTIONS_PER_SET]
-        for i in range(len(SET_LABELS))
-    ]
+    # Draw the available questions (up to MAX_QUESTIONS_PER_EXAM for backward compatibility)
+    num_to_draw = min(len(all_ids), MAX_QUESTIONS_PER_EXAM)
+    drawn = random.sample(all_ids, num_to_draw)
+
+    # Calculate dynamic set sizes based on available questions.
+    # For backward compatibility: if num_to_draw >= 80, use 20 per set.
+    # Otherwise, distribute evenly across 4 sets.
+    num_questions = len(drawn)
+    questions_per_set = num_questions // len(SET_LABELS)
+    remainder = num_questions % len(SET_LABELS)
+    
+    set_sizes = []
+    for i in range(len(SET_LABELS)):
+        size = questions_per_set
+        if i < remainder:
+            size += 1
+        set_sizes.append(size)
+    
+    # Slice the drawn ids into 4 chunks based on calculated set sizes.
+    partitions: list[list[uuid.UUID]] = []
+    for i in range(len(SET_LABELS)):
+        start = sum(set_sizes[:i])
+        end = start + set_sizes[i]
+        partitions.append(drawn[start:end])
 
     exam = Exam(
         subject=selected.value,
@@ -796,7 +871,7 @@ def create_institution_exam(
             sets_payload.append({
                 "label": label,
                 "exam_set_id": str(exam_set.id),
-                "question_count": QUESTIONS_PER_SET,
+                "question_count": len(qids),
             })
         session.commit()
     except (SQLAlchemyError, Exception) as exc:
@@ -1066,3 +1141,111 @@ def get_feature_access(
         "has_active_subscription": plan is not None,
         "features": {f: _has_feature(plan, f) for f in features},
     }
+
+
+# ---------------------------------------------------------------------------
+# POST /content/upload/delete — delete institution indexed file
+# ---------------------------------------------------------------------------
+
+@router.post("/content/upload/delete")
+async def delete_institution_indexed_file(
+    file_id: str = Body(..., description="UUID of the file to delete", embed=True),
+    payload: Annotated[dict, Depends(require_institution_admin)] = None,
+    db: Session = Depends(get_session),
+) -> Any:
+    """Delete an indexed file (institution admin only).
+    
+    This endpoint:
+    1. Validates file_id is a valid UUID
+    2. Retrieves the file from the database
+    3. Verifies it exists and belongs to the authenticated institution
+    4. Deletes the file record from indexed_files table
+    5. Returns success response
+    
+    Errors:
+    - 400: Invalid file_id or validation error
+    - 401: Unauthorized (handled by require_institution_admin)
+    - 403: Forbidden (file belongs to different institution)
+    - 404: File not found
+    - 500: Database error
+    """
+    
+    inst_id = _institution_id(payload)
+    
+    # Validate file_id is a valid UUID
+    try:
+        file_uuid = uuid.UUID(file_id)
+    except (ValueError, TypeError):
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": "validation_error",
+                "message": "file_id must be a valid UUID",
+                "field": "file_id",
+            },
+        )
+    
+    # Retrieve the file from database
+    stmt = select(IndexedFile).where(IndexedFile.id == file_uuid)
+    indexed_file = db.execute(stmt).scalar_one_or_none()
+    
+    if indexed_file is None:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "error": "not_found",
+                "message": "Indexed file not found",
+            },
+        )
+    
+    # Verify file belongs to authenticated institution
+    if indexed_file.institution_id != inst_id:
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={
+                "error": "forbidden",
+                "message": "This file does not belong to your institution",
+            },
+        )
+    
+    try:
+        # Delete the file record
+        # Note: Questions are not directly linked to files via foreign key,
+        # so they are not cascade deleted. They remain in the institution's question bank.
+        db.delete(indexed_file)
+        db.commit()
+        
+        logger.info(
+            "Institution file deleted successfully: id=%s, filename=%s, subject=%s, institution=%s",
+            file_uuid,
+            indexed_file.filename,
+            indexed_file.subject,
+            inst_id,
+        )
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "File deleted successfully",
+                "file_id": str(file_uuid),
+                "filename": indexed_file.filename,
+            },
+        )
+    
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            "Failed to delete institution indexed file: id=%s, error=%s, institution=%s",
+            file_uuid,
+            str(e),
+            inst_id,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": "internal_error",
+                "message": "Failed to delete file",
+            },
+        )
+

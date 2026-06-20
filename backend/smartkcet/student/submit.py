@@ -128,11 +128,16 @@ def _load_exam_set_questions(
     rows = session.execute(stmt).all()
     questions: list[dict[str, Any]] = []
     for question, _order in rows:
+        # Convert correct_option to int if it's a digit string
+        correct_ans = question.correct_option
+        if isinstance(correct_ans, str) and correct_ans.isdigit():
+            correct_ans = int(correct_ans)
+        
         questions.append(
             {
                 "q": question.question_text,
                 "opts": question.options,
-                "ans": question.correct_option,
+                "ans": correct_ans,
                 "topic": question.topic or "General",
                 "marks": 1,
             }
@@ -359,6 +364,12 @@ def submit(
     # /analyze body (which only had ``topicScores``).
     score_envelope = {k: v for k, v in score.items() if k != "topic_breakdown"}
     response_body["result"] = score_envelope
+    
+    # Also include questionResults in the submission object for easy access
+    if "questionResults" in score_envelope:
+        submission_data = response_body["submission"]
+        submission_data["questionResults"] = score_envelope["questionResults"]
+    
     return response_body
 
 

@@ -463,11 +463,15 @@ def _activate_student_on_payment(
 
     # Use billing.plan_id if available (user's selection), fallback to sub.plan_id
     plan_id_to_use = billing.plan_id or sub.plan_id
-    # Normalise to a UUID and compare natively (id is stored as 32-char hex).
+    # Convert to UUID object if necessary (handles both string and UUID types)
     plan = None
     if plan_id_to_use:
         try:
-            _pid = plan_id_to_use if isinstance(plan_id_to_use, uuid.UUID) else uuid.UUID(str(plan_id_to_use))
+            # Ensure we have a UUID object for the query
+            if isinstance(plan_id_to_use, uuid.UUID):
+                _pid = plan_id_to_use
+            else:
+                _pid = uuid.UUID(str(plan_id_to_use))
             plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == _pid).first()
         except (ValueError, TypeError):
             plan = None
@@ -480,15 +484,17 @@ def _activate_student_on_payment(
     prev_status = sub.status
     duration    = _plan_duration(plan.billing_period)
 
-    # Keep plan_id as a UUID — the column is a UUID type, so assigning a
-    # string raises "'str' object has no attribute 'hex'" on flush.
+    # Assign plan_id as a UUID object (the column is Uuid type)
     _raw_plan = billing.plan_id or sub.plan_id
     if _raw_plan is None:
         plan_id_to_assign = None
     elif isinstance(_raw_plan, uuid.UUID):
         plan_id_to_assign = _raw_plan
     else:
-        plan_id_to_assign = uuid.UUID(str(_raw_plan))
+        try:
+            plan_id_to_assign = uuid.UUID(str(_raw_plan))
+        except (ValueError, TypeError):
+            plan_id_to_assign = None
     sub.plan_id               = plan_id_to_assign
     sub.status                = "active"
     sub.start_date            = sub.start_date if prev_status not in ("expired", "cancelled") else now
@@ -575,11 +581,15 @@ def _activate_institution_sub(
     """Activate institution subscription (extracted for clarity)."""
     # Use billing.plan_id if available (user's selection), fallback to sub.plan_id
     plan_id_to_use = billing.plan_id or sub.plan_id
-    # Normalise to a UUID and compare natively (id is stored as 32-char hex).
+    # Convert to UUID object if necessary (handles both string and UUID types)
     plan = None
     if plan_id_to_use:
         try:
-            _pid = plan_id_to_use if isinstance(plan_id_to_use, uuid.UUID) else uuid.UUID(str(plan_id_to_use))
+            # Ensure we have a UUID object for the query
+            if isinstance(plan_id_to_use, uuid.UUID):
+                _pid = plan_id_to_use
+            else:
+                _pid = uuid.UUID(str(plan_id_to_use))
             plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == _pid).first()
         except (ValueError, TypeError):
             plan = None
@@ -592,15 +602,17 @@ def _activate_institution_sub(
     prev_status = sub.status
     duration    = _plan_duration(plan.billing_period)
 
-    # Keep plan_id as a UUID — the column is a UUID type, so assigning a
-    # string raises "'str' object has no attribute 'hex'" on flush.
+    # Assign plan_id as a UUID object (the column is Uuid type)
     _raw_plan = billing.plan_id or sub.plan_id
     if _raw_plan is None:
         plan_id_to_assign = None
     elif isinstance(_raw_plan, uuid.UUID):
         plan_id_to_assign = _raw_plan
     else:
-        plan_id_to_assign = uuid.UUID(str(_raw_plan))
+        try:
+            plan_id_to_assign = uuid.UUID(str(_raw_plan))
+        except (ValueError, TypeError):
+            plan_id_to_assign = None
     sub.plan_id               = plan_id_to_assign
     sub.status                = "active"
     sub.start_date            = sub.start_date if prev_status not in ("expired", "cancelled") else now

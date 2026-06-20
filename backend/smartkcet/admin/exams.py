@@ -52,7 +52,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..db.models import Exam, ExamSet, ExamSetQuestion, Question, Subject
-from ..db.session import get_async_session as get_session
+from ..db.session import get_session
 from ..middleware.rbac import require_admin
 
 logger = logging.getLogger("smartkcet.admin.exams")
@@ -65,7 +65,8 @@ router = APIRouter()
 # imports the same values rather than duplicating the magic numbers.
 SET_LABELS = ("A", "B", "C", "D")
 QUESTIONS_PER_SET = 20
-QUESTIONS_PER_EXAM = QUESTIONS_PER_SET * len(SET_LABELS)  # 80
+MAX_QUESTIONS_PER_EXAM = QUESTIONS_PER_SET * len(SET_LABELS)  # 80
+MIN_QUESTIONS_TO_GENERATE = 1
 
 
 # ---------------------------------------------------------------------------
@@ -151,34 +152,34 @@ def create_exam(
     # ---- Step 1: count subject questions ---------------------------------
     # Counting outside the write transaction is safe: if the count drops
     # between here and the random draw, the draw simply returns fewer
-    # than 80 ids and we abort with 422 (re-checked below).  We never
-    # write anything until we have all 80 ids in hand.
+    # than required ids and we abort with 422 (re-checked below).  We never
+    # write anything until we have all required ids in hand.
     count_stmt = select(func.count(Question.id)).where(
         Question.subject == selected.value
     )
     available = int(session.execute(count_stmt).scalar_one())
-    if available < QUESTIONS_PER_EXAM:
+    if available < MIN_QUESTIONS_TO_GENERATE:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={
                 "error": "insufficient_questions",
                 "subject": selected.value,
                 "count": available,
-                "required": QUESTIONS_PER_EXAM,
+                "required": MIN_QUESTIONS_TO_GENERATE,
             },
         )
 
-    # ---- Step 2: random draw of 80 question ids -------------------------
-    # Pull every question id for the subject, then sample 80 via
-    # :func:`random.sample` so the draw is uniform over the bank without
-    # leaning on a database-specific ``ORDER BY RANDOM()``.
+    # ---- Step 2: random draw of required question ids -------------------
+    # Pull every question id for the subject, then sample the required
+    # quantity via :func:`random.sample` so the draw is uniform over
+    # the bank without leaning on a database-specific ``ORDER BY RANDOM()``.
     id_rows = session.execute(
         select(Question.id).where(Question.subject == selected.value)
     ).all()
     all_ids: list[uuid.UUID] = [row[0] for row in id_rows]
-    if len(all_ids) < QUESTIONS_PER_EXAM:
+    if len(all_ids) < MIN_QUESTIONS_TO_GENERATE:
         # Defensive race-guard: between the count and the id fetch a
-        # concurrent delete could have dropped the count below 80.  Abort
+        # concurrent delete could have dropped the count below minimum.  Abort
         # cleanly without writing anything.
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -186,20 +187,37 @@ def create_exam(
                 "error": "insufficient_questions",
                 "subject": selected.value,
                 "count": len(all_ids),
-                "required": QUESTIONS_PER_EXAM,
+                "required": MIN_QUESTIONS_TO_GENERATE,
             },
         )
 
-    drawn: list[uuid.UUID] = random.sample(all_ids, QUESTIONS_PER_EXAM)
+    # Draw the available questions (up to MAX_QUESTIONS_PER_EXAM for backward compatibility)
+    num_to_draw = min(available, MAX_QUESTIONS_PER_EXAM)
+    drawn: list[uuid.UUID] = random.sample(all_ids, num_to_draw)
 
     # ---- Step 3: partition + insert all rows in one transaction ---------
-    # Slice the 80 drawn ids into 4 contiguous chunks of 20.  Because
-    # ``random.sample`` returns distinct elements, the 4 slices share no
-    # ids, satisfying REQ-7.3 ("no question repeated across sets").
-    partitions: list[list[uuid.UUID]] = [
-        drawn[i * QUESTIONS_PER_SET : (i + 1) * QUESTIONS_PER_SET]
-        for i in range(len(SET_LABELS))
-    ]
+    # Calculate dynamic set sizes based on available questions.
+    # For backward compatibility: if num_to_draw >= 80, use 20 per set.
+    # Otherwise, distribute evenly across 4 sets.
+    num_questions = len(drawn)
+    questions_per_set = num_questions // len(SET_LABELS)
+    remainder = num_questions % len(SET_LABELS)
+    
+    set_sizes = []
+    for i in range(len(SET_LABELS)):
+        size = questions_per_set
+        if i < remainder:
+            size += 1
+        set_sizes.append(size)
+    
+    # Slice the drawn ids into 4 chunks based on calculated set sizes.
+    # Because ``random.sample`` returns distinct elements, the 4 slices
+    # share no ids, satisfying REQ-7.3 ("no question repeated across sets").
+    partitions: list[list[uuid.UUID]] = []
+    for i in range(len(SET_LABELS)):
+        start = sum(set_sizes[:i])
+        end = start + set_sizes[i]
+        partitions.append(drawn[start:end])
 
     exam = Exam(subject=selected.value, exam_name=payload.exam_name)
     session.add(exam)
@@ -223,14 +241,14 @@ def create_exam(
                 )
                 for order_index, qid in enumerate(qids)
             ]
-            # Bulk-add the 20 link rows for this set.
+            # Bulk-add the link rows for this set.
             session.add_all(link_rows)
 
             sets_payload.append(
                 {
                     "label": label,
                     "exam_set_id": str(exam_set.id),
-                    "question_count": QUESTIONS_PER_SET,
+                    "question_count": len(qids),
                 }
             )
 
@@ -386,5 +404,6 @@ __all__ = [
     "router",
     "SET_LABELS",
     "QUESTIONS_PER_SET",
-    "QUESTIONS_PER_EXAM",
+    "MAX_QUESTIONS_PER_EXAM",
+    "MIN_QUESTIONS_TO_GENERATE",
 ]

@@ -57,7 +57,7 @@ router = APIRouter()
 # Generation contract: 4 sets, up to 20 questions each = up to 80 total.
 SET_LABELS = ("A", "B", "C", "D")
 QUESTIONS_PER_SET = 20
-MIN_TOTAL_QUESTIONS = 20  # Minimum to generate any sets at all
+MIN_TOTAL_QUESTIONS = 1  # Minimum to generate any sets at all
 
 
 def _validation_error(message: str, field: Optional[str] = None) -> JSONResponse:
@@ -150,6 +150,10 @@ async def generate(
     No external API calls are made. Questions are pulled from the DB
     (populated during upload via MCQ extraction) and randomly partitioned
     into 4 non-overlapping sets.
+    
+    **Generated questions are NOT saved** - this endpoint only selects and
+    returns existing questions from the database for display/preview.
+    To use these questions in an exam, call POST /api/admin/exams.
     """
 
     raw_subject = await _read_subject(request)
@@ -166,7 +170,7 @@ async def generate(
     # Query all questions for this subject from the DB
     stmt = (
         select(Question)
-        .where(Question.subject == subject_name)
+        .where(Question.subject == subject_name, Question.institution_id.is_(None))
         .order_by(sa_func.random())
     )
     all_questions = list(session.execute(stmt).scalars().all())

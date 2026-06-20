@@ -220,6 +220,56 @@ def list_published_exams(
 
 
 @router.get("/exams/{exam_set_id}")
+def _shuffle_question_options(question_dict: dict[str, Any]) -> dict[str, Any]:
+    """Shuffle MCQ options and update the correct answer index.
+    
+    Args:
+        question_dict: Question dict with "opts" and "ans" keys
+        
+    Returns:
+        Question dict with shuffled options and updated correct answer index
+    """
+    import random
+    
+    opts = question_dict.get("opts", [])
+    ans = question_dict.get("ans", 0)
+    
+    # Handle case where options list is empty or too small
+    if not opts or len(opts) < 2:
+        return question_dict
+    
+    # Convert answer to int index if it's a string
+    try:
+        correct_index = int(ans) if isinstance(ans, str) else ans
+    except (ValueError, TypeError):
+        return question_dict
+    
+    # Ensure correct_index is valid
+    if correct_index < 0 or correct_index >= len(opts):
+        return question_dict
+    
+    # Create list of (option, original_index) tuples
+    indexed_opts = list(enumerate(opts))
+    
+    # Shuffle the indexed options
+    random.shuffle(indexed_opts)
+    
+    # Find the new index of the correct answer
+    new_correct_index = None
+    shuffled_opts = []
+    for new_idx, (orig_idx, opt) in enumerate(indexed_opts):
+        shuffled_opts.append(opt)
+        if orig_idx == correct_index:
+            new_correct_index = new_idx
+    
+    # Update the question dict with shuffled options and new correct index
+    result = question_dict.copy()
+    result["opts"] = shuffled_opts
+    result["ans"] = str(new_correct_index)  # Store as string to match original format
+    
+    return result
+
+
 def get_exam_set_questions(
     exam_set_id: str,
     session: Session = Depends(get_session),
@@ -243,6 +293,7 @@ def get_exam_set_questions(
 
     Questions are ordered by ``ExamSetQuestion.order_index`` so the
     student's answer map keys (``"0"`` ... ``"19"``) align with positions.
+    Options are shuffled per-question to prevent bias towards option A.
     """
     import uuid as _uuid
 
@@ -301,14 +352,17 @@ def get_exam_set_questions(
 
     questions = []
     for question, _order in rows:
-        questions.append({
+        q_dict = {
             "q": question.question_text,
             "type": "MCQ",
             "opts": question.options,
             "topic": question.topic or "General",
             "ans": question.correct_option,
             "marks": 1,
-        })
+        }
+        # Shuffle options to prevent bias towards option A
+        q_dict = _shuffle_question_options(q_dict)
+        questions.append(q_dict)
 
     return {
         "exam_set_id": str(set_id),

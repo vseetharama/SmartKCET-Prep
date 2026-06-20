@@ -953,3 +953,71 @@ def reset_student_password(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error resetting password"
         )
+
+
+@router.delete("/students/{user_id}", status_code=status.HTTP_200_OK)
+def delete_student(
+    user_id: UUID,
+    db: Session = Depends(get_session),
+    _: dict = Depends(require_platform_admin),
+):
+    """Delete a direct subscriber student and all associated data.
+    
+    Allows platform admins to permanently delete direct subscriber students.
+    This also deletes all subscriptions associated with the student.
+    
+    Requires Platform Admin authentication.
+    
+    Args:
+        user_id: UUID of the student user to delete
+        db: Database session
+        
+    Returns:
+        Success response with confirmation
+    """
+    from ..db.models import User
+    from ..db.subscription_models import Subscription
+    
+    try:
+        # Find the user
+        user = db.query(User).filter(
+            User.id == user_id,
+            User.role == 'student',
+            User.student_subtype == 'direct_subscriber'
+        ).first()
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Student not found or is not a direct subscriber"
+            )
+        
+        # Delete all subscriptions for this student
+        subscriptions = db.query(Subscription).filter(Subscription.user_id == user_id).all()
+        for sub in subscriptions:
+            db.delete(sub)
+        
+        # Delete the student
+        db.delete(user)
+        db.commit()
+        
+        logger.info(f"Admin deleted direct subscriber student {user.email} ({user.id})")
+        
+        return {
+            "success": True,
+            "message": "Student deleted successfully",
+            "user_id": str(user.id),
+            "email": user.email,
+            "deleted_subscriptions": len(subscriptions),
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting student: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error deleting student"
+        )
+
