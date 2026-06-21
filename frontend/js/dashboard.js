@@ -254,11 +254,6 @@ async function initDashboard() {
     console.log('[dashboard] ⚠️ Student role but no subtype - defaulting to NO modal');
   }
 
-  // Wire up the deferred subscription selection flow for "Take Exam" CTAs
-  if (!isAdmin) {
-    setupTakeExamInterceptors();
-  }
-
   document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
 
   // Hide the student filter (admin-only)
@@ -818,16 +813,25 @@ window.openDrawer = async (submissionId) => {
       </div>
       <div class="drawer-section-title">Answer Review (${s.questions?.length || 0} questions)</div>
       <div class="answer-review-list">
-        ${(s.questions || []).map((r, i) => `
+        ${(s.questions || []).map((r, i) => {
+          const optionLetters = ['A', 'B', 'C', 'D'];
+          const givenLetter = r.given !== undefined && r.given !== null && r.given !== '' 
+            ? (isNaN(r.given) ? r.given : optionLetters[parseInt(r.given)] || '—')
+            : '—';
+          const correctLetter = r.correctAns !== undefined && r.correctAns !== null
+            ? (isNaN(r.correctAns) ? r.correctAns : optionLetters[parseInt(r.correctAns)] || '—')
+            : '—';
+          return `
           <div class="answer-row ${r.status}">
             <span class="ans-status-icon">${icons[r.status] || '⬜'}</span>
             <div class="ans-content">
               <div class="ans-q-text">Q${r.order_index != null ? r.order_index + 1 : i + 1}. ${r.q}</div>
-              <div class="ans-given">Your answer: <strong>${r.given !== undefined && r.given !== null && r.given !== '' ? r.given : 'Not answered'}</strong></div>
-              ${r.status !== 'correct' ? `<div class="ans-correct-text">✓ Correct: ${r.correctAns}</div>` : ''}
+              <div class="ans-given">Your answer: <strong>${givenLetter}</strong></div>
+              ${r.status !== 'correct' ? `<div class="ans-correct-text">✓ Correct: <strong>${correctLetter}</strong></div>` : ''}
               <div class="ans-meta">${r.topic}</div>
             </div>
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>`;
 
     document.getElementById('drawerOverlay').style.display = 'block';

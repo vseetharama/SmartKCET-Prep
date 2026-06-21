@@ -227,6 +227,40 @@ def student_pricing_page(request: Request, session: Session = Depends(get_sessio
 
 
 # ---------------------------------------------------------------------------
+# Direct Subscriber Pages (/student/direct-subscriber/*)
+# ---------------------------------------------------------------------------
+
+@router.get("/student/direct-subscriber/performance", response_model=None)
+async def direct_subscriber_performance_page(request: Request, session: Session = Depends(get_session)):
+    """Dedicated performance analytics page for direct_subscriber users."""
+    payload = resolve_payload(request, session)
+    if payload is None:
+        return RedirectResponse(url="/login", status_code=_REDIRECT)
+    role = payload.get("role", "")
+    student_subtype = payload.get("student_subtype", "")
+    
+    # Only direct_subscriber students can access this page
+    if role == "student" and student_subtype == "direct_subscriber":
+        return FileResponse(str(_HTML_DIR / "direct-subscriber-performance.html"), media_type="text/html")
+    
+    # Institution-linked students → their dashboard
+    if _is_institution_student(payload):
+        return RedirectResponse(url="/student/institution/dashboard", status_code=_REDIRECT)
+    
+    # Personal students without direct_subscriber subtype → main dashboard
+    if role == "student":
+        return RedirectResponse(url="/dashboard", status_code=_REDIRECT)
+    
+    # Admins → their respective dashboards
+    if _is_platform_admin(role):
+        return RedirectResponse(url="/admin/dashboard", status_code=_REDIRECT)
+    if role == "institution_admin":
+        return RedirectResponse(url="/institution/dashboard", status_code=_REDIRECT)
+    
+    return RedirectResponse(url="/login", status_code=_REDIRECT)
+
+
+# ---------------------------------------------------------------------------
 # Institution Student Platform  (/student/institution/*)
 # ---------------------------------------------------------------------------
 

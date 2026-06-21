@@ -762,13 +762,22 @@ var SubscriptionModal = (function () {
           var statusData = await statusRes.json();
           console.log('[subscription-modal] Subscription status data:', statusData);
           
-          // If user has active subscription, disable buttons based on current plan
-          if (statusData.has_active_subscription && statusData.current_plan_name) {
-            console.log('[subscription-modal] Has active subscription:', statusData.current_plan_name);
-            
+          // CHANGE 1: Split Conditional Logic - has_active_subscription is the source of truth
+          // Plan name can be null even when subscription is active
+          if (statusData.has_active_subscription) {
+            // CHANGE 2 & 3: Add null-safety for plan name display and tooltip generation
             var daysRemaining = statusData.days_remaining || 'unknown';
-            var currentPlan = statusData.current_plan_name;
-            var tooltipText = 'Can be upgraded after ' + currentPlan + ' expires in ' + daysRemaining + ' days';
+            var currentPlan = statusData.current_plan_name || 'your current plan';
+            
+            // Handle null plan_name case for tooltip
+            var tooltipText;
+            if (statusData.current_plan_name) {
+              tooltipText = 'Can be upgraded after ' + currentPlan + ' expires in ' + daysRemaining + ' days';
+            } else {
+              tooltipText = 'Plan information unavailable. Please upgrade after plan expires.';
+            }
+            
+            console.log('[subscription-modal] Has active subscription:', statusData.current_plan_name || '(plan name missing)');
             
             var freeBtn = _qs('[data-action="select-free"]');
             var trialBtn = _qs('[data-action="select-trial"]');
@@ -782,10 +791,16 @@ var SubscriptionModal = (function () {
               yearly: !!yearlyBtn
             });
             
-            // Determine which buttons to disable based on current plan
+            // CHANGE 4: Update Button Disabling Logic - handle null plan_name case
             var buttonsToDisable = [];
             
-            if (currentPlan === 'Free') {
+            if (statusData.current_plan_name === null || statusData.current_plan_name === '') {
+              // Null plan name: disable all paid plans (user has active subscription but name missing)
+              buttonsToDisable = [trialBtn, monthlyBtn, yearlyBtn];
+              console.log('[subscription-modal] Active subscription with missing plan name - disabling paid plans');
+              // CHANGE 6 part A: Add debug logging for null plan case
+              console.log('[subscription-modal] Plan name missing but subscription active - using fallback display');
+            } else if (currentPlan === 'Free') {
               // If on Free: enable all 3 paid buttons
               buttonsToDisable = [];
               console.log('[subscription-modal] Current plan: Free - all paid buttons enabled');
@@ -825,7 +840,8 @@ var SubscriptionModal = (function () {
             
             console.log('[subscription-modal] Applied subscription-based button restrictions');
           } else {
-            console.log('[subscription-modal] No active subscription or plan name missing');
+            // CHANGE 5: Update console logging - change message to be more precise
+            console.log('[subscription-modal] No active subscription detected');
             console.log('[subscription-modal] has_active_subscription:', statusData.has_active_subscription);
             console.log('[subscription-modal] current_plan_name:', statusData.current_plan_name);
           }

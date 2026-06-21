@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>My Performance — SmartKCET Prep</title>
+  <link rel="stylesheet" href="../css/style.css"/>
+  <link rel="stylesheet" href="../css/subscription.css"/>
+  <link rel="stylesheet" href="../css/subscription-modal-premium.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Preload Razorpay checkout script so it's ready when user selects a paid plan -->
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+  <div class="bg-mesh"></div>
+
+  <!-- Performance Dashboard Navbar -->
+  <nav class="navbar" aria-label="Main navigation">
+    <div class="nav-brand">
+      <div class="brand-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </div>
+      <span class="brand-name">SmartKCET<span class="brand-ai">Prep</span></span>
+    </div>
+    <div class="nav-links">
+      <a href="/dashboard" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a href="/exam" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        Exam
+      </a>
+      <a href="/student/direct-subscriber/performance" class="nav-pill active" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2z"/><polyline points="9 9 9 17 15 17 15 9"/></svg>
+        Performance
+      </a>
+      <a href="/subscription" class="nav-pill nav-subscription-personal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+        Subscription
+      </a>
+      <a href="/contact-us" class="nav-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Contact
+      </a>
+    </div>
+    <div class="nav-actions">
+      <button id="themeToggleBtn" class="nav-pill" type="button" aria-label="Toggle dark/light mode" title="Toggle Theme">☀️</button>
+      <a href="#" class="nav-pill" id="logoutBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </a>
+    </div>
+  </nav>
+
+  <!-- Subscription Banner Placeholder -->
+  <div id="subscription-banner-mount" role="region" aria-label="Subscription status"></div>
+
+  <main class="dash-main">
+    <!-- Performance Page Header -->
+    <div class="dash-hero">
+      <div>
+        <h1 class="dash-title">My <span class="hero-gradient">Performance</span></h1>
+        <p class="dash-sub" id="dashSubtitle">Detailed analytics for your exam submissions</p>
+      </div>
+      <div class="dash-hero-right">
+        <div class="last-updated" id="lastUpdated">Last updated: —</div>
+        <button class="btn-outline" onclick="refreshPerformancePage()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
+      </div>
+    </div><!-- End dash-hero -->
+
+    <!-- Student Profile Card -->
+    <div class="section-card" style="margin-bottom:20px;padding:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="color:var(--muted);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Student Profile</div>
+          <div style="display:flex;align-items:center;gap:16px;">
+            <div>
+              <div style="font-size:0.9rem;color:var(--muted);">Name:</div>
+              <div style="font-size:1.1rem;font-weight:600;color:var(--text);" id="studentName">—</div>
+            </div>
+            <div>
+              <div style="font-size:0.9rem;color:var(--muted);">KCET ID:</div>
+              <div style="font-size:1.1rem;font-weight:600;color:var(--purple-l);" id="studentKcetId">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- No Data State -->
+    <div class="empty-state" id="emptyState" style="display:none">
+      <div class="empty-icon">📊</div>
+      <h3>No Submissions Yet</h3>
+      <p>Complete and submit exams to see your performance analytics here.</p>
+      <div class="empty-actions">
+        <a href="/exam" class="btn-primary" id="emptyStateTakeExamBtn" data-take-exam>Take Exam →</a>
+      </div>
+    </div>
+
+    <div id="dashContent">
+      <!-- Filters -->
+      <div class="dash-filters section-card">
+        <div class="filter-row">
+          <div class="filter-group">
+            <label class="input-label">Subject</label>
+            <select id="filterSubject" class="select-input" onchange="applyFilters()">
+              <option value="all">All Subjects</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label class="input-label">Paper Set</label>
+            <select id="filterSet" class="select-input" onchange="applyFilters()">
+              <option value="all">All Sets</option>
+              <option value="Set A">Set A</option>
+              <option value="Set B">Set B</option>
+              <option value="Set C">Set C</option>
+              <option value="Set D">Set D</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label class="input-label">Status</label>
+            <select id="filterStatus" class="select-input" onchange="applyFilters()">
+              <option value="all">All</option>
+              <option value="pass">Pass</option>
+              <option value="fail">Fail</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- KPI Row -->
+      <div class="kpi-row" id="kpiRow">
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiStudents">0</div>
+            <div class="kpi-tile-label">Exams Taken</div>
+          </div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiSubmissions">0</div>
+            <div class="kpi-tile-label">Submissions</div>
+          </div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg></div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiAvgScore">0%</div>
+            <div class="kpi-tile-label">Avg Score</div>
+          </div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiPassRate">0%</div>
+            <div class="kpi-tile-label">Pass Rate</div>
+          </div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiAvgTime">0m</div>
+            <div class="kpi-tile-label">Avg Time</div>
+          </div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-tile-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15l-3 3h6l-3-3z"/><path d="M5 9l7-7 7 7"/><path d="M4 19h16"/></svg></div>
+          <div class="kpi-tile-body">
+            <div class="kpi-tile-val" id="kpiRankValue">—</div>
+            <div class="kpi-tile-label">Your Rank</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts Section -->
+      <div class="charts-section">
+        <!-- Topic Performance Full Width -->
+        <div class="chart-card section-card" style="margin-bottom:24px">
+          <div class="chart-card-header">
+            <h3>📊 Topic Performance</h3>
+            <p style="font-size:0.75rem;color:var(--muted);margin-top:2px">Your performance across different topics</p>
+          </div>
+          <div class="chart-wrap topic-radar"><canvas id="topicChart"></canvas></div>
+        </div>
+
+        <!-- Charts Grid Row 1 -->
+        <div class="charts-grid-2">
+          <div class="chart-card section-card">
+            <div class="chart-card-header">
+              <h3>📈 Set-wise Avg Score</h3>
+              <p style="font-size:0.75rem;color:var(--muted);margin-top:2px">Performance by exam set</p>
+            </div>
+            <div class="chart-wrap"><canvas id="setChart"></canvas></div>
+          </div>
+          <div class="chart-card section-card">
+            <div class="chart-card-header">
+              <h3>✓ Pass vs Fail</h3>
+              <p style="font-size:0.75rem;color:var(--muted);margin-top:2px">Your exam status distribution</p>
+            </div>
+            <div class="chart-wrap"><canvas id="passChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Analysis Block -->
+      <div class="ai-block section-card" id="aiBlock">
+        <div class="ai-block-header">
+          <div class="ai-block-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/><path d="M15.54 8.46a5 5 0 010 7.07M8.46 8.46a5 5 0 000 7.07"/></svg>
+          </div>
+          <div>
+            <h2>AI Performance Analysis</h2>
+            <p class="section-sub" id="aiAnalysisFor">Analyzing your submissions</p>
+          </div>
+          <div class="ai-block-badge">RAG Powered</div>
+        </div>
+
+        <div class="ai-zones-grid">
+          <div class="ai-zone strong">
+            <div class="ai-zone-header">
+              <span class="zone-icon">💪</span>
+              <span>Strong Areas</span>
+              <span class="zone-count" id="strongCount">0</span>
+            </div>
+            <ul class="zone-items" id="strongItems"></ul>
+          </div>
+          <div class="ai-zone improve">
+            <div class="ai-zone-header">
+              <span class="zone-icon">📈</span>
+              <span>Can Improve</span>
+              <span class="zone-count" id="improveCount">0</span>
+            </div>
+            <ul class="zone-items" id="improveItems"></ul>
+          </div>
+          <div class="ai-zone weak">
+            <div class="ai-zone-header">
+              <span class="zone-icon">⚠️</span>
+              <span>Weak Areas</span>
+              <span class="zone-count" id="weakCount">0</span>
+            </div>
+            <ul class="zone-items" id="weakItems"></ul>
+          </div>
+        </div>
+
+        <div class="ai-recommendation-box" id="aiRecommendationBox">
+          <div class="ai-rec-header">
+            <span>🤖</span> AI Recommendation
+          </div>
+          <p id="aiRecommendationText"></p>
+        </div>
+      </div>
+
+      <!-- Score Trend Chart -->
+      <div class="chart-card section-card" style="margin-top:24px">
+        <div class="chart-card-header">
+          <h3>📈 Score Trend</h3>
+          <p style="font-size:0.75rem;color:var(--muted);margin-top:2px">Your recent exam scores</p>
+        </div>
+        <div class="chart-wrap" style="height:300px;"><canvas id="scoreChart"></canvas></div>
+      </div>
+
+      <!-- Exam History Table -->
+      <div class="section-card results-card" style="margin-top:24px">
+        <div class="results-header">
+          <h3>Exam History</h3>
+          <div class="results-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="searchInput" class="search-input" placeholder="Search subject or set..." oninput="filterTable()"/>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="results-table">
+            <thead>
+              <tr>
+                <th onclick="sortTable('subject')">Subject <span class="sort-icon">↕</span></th>
+                <th onclick="sortTable('set')">Set <span class="sort-icon">↕</span></th>
+                <th onclick="sortTable('score')">Score <span class="sort-icon">↕</span></th>
+                <th onclick="sortTable('time')">Time <span class="sort-icon">↕</span></th>
+                <th onclick="sortTable('status')">Status <span class="sort-icon">↕</span></th>
+                <th onclick="sortTable('submitted_at')">Date <span class="sort-icon">↕</span></th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+        <div class="table-footer" id="tableFooter"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="../js/auth.js"></script>
+  <script src="../js/router.js"></script>
+  <script src="../js/error-handler.js"></script>
+  <script src="../js/focus-trap.js"></script>
+  <script src="../js/subscription.js"></script>
+  <script src="../js/subscription-banner.js"></script>
+  <script src="../js/theme.js"></script>
+  <script src="../js/direct-subscriber-performance.js"></script>
+  <script>
+    if (typeof Router !== 'undefined' && Router.init) { Router.init(); }
+    
+    document.getElementById('logoutBtn').addEventListener('click', function(e) {
+      e.preventDefault();
+      fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+        .finally(function() { window.location.href = '/login'; });
+    });
+  </script>
+</body>
+</html>

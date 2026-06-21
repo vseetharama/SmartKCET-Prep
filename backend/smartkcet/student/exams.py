@@ -219,7 +219,6 @@ def list_published_exams(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/exams/{exam_set_id}")
 def _shuffle_question_options(question_dict: dict[str, Any]) -> dict[str, Any]:
     """Shuffle MCQ options and update the correct answer index.
     
@@ -270,6 +269,7 @@ def _shuffle_question_options(question_dict: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+@router.get("/exams/{exam_set_id}")
 def get_exam_set_questions(
     exam_set_id: str,
     session: Session = Depends(get_session),

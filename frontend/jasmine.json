@@ -1,0 +1,8 @@
+{
+  "spec_dir": "tests",
+  "spec_files": ["**/*[sS]pec.js"],
+  "helpers": ["setup.js"],
+  "stopSpecOnExpectationFailure": false,
+  "random": false,
+  "seed": 42
+}
